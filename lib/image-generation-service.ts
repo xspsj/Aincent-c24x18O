@@ -728,6 +728,7 @@ export async function generateImageFromConfiguredApi(params: {
   description: string;
   characterId?: string;
   useReferenceImage?: boolean;
+  useUserReferenceImage?: boolean;
   settings?: ImageGenerationSettings;
   signal?: AbortSignal;
 }): Promise<ImageGenerationResult | null> {
@@ -779,19 +780,51 @@ export async function generateImageFromConfiguredApi(params: {
   const openaiSettings = openaiPreset ? { ...settings, ...openaiPreset } : settings;
   if (!openaiSettings.apiKey.trim() || !openaiSettings.baseUrl.trim() || !openaiSettings.model.trim()) return null;
 
-  const reference = params.characterId ? settings.characterReferences[params.characterId] : undefined;
-  const rawReferenceImageDataUrl = params.useReferenceImage && reference?.assetId
-    ? await getChatImageFromIndexedDB(reference.assetId)
+  const charRef = params.characterId ? settings.characterReferences[params.characterId] : undefined;
+  const userRef = settings.userReference;
+
+  const rawCharDataUrl = params.useReferenceImage && charRef?.assetId
+    ? await getChatImageFromIndexedDB(charRef.assetId)
+    : null;
+  const rawUserDataUrl = params.useUserReferenceImage && userRef?.assetId
+    ? await getChatImageFromIndexedDB(userRef.assetId)
     : null;
   throwIfAborted(params.signal);
-  const referenceImageDataUrl = rawReferenceImageDataUrl
-    ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl)
+
+  let mergedRefDataUrl: string | null = null;
+  if (rawCharDataUrl && rawUserDataUrl) {
+    mergedRefDataUrl = await combineDualReferenceImages(rawCharDataUrl, rawUserDataUrl);
+  } else if (rawCharDataUrl) {
+    mergedRefDataUrl = rawCharDataUrl;
+  } else if (rawUserDataUrl) {
+    mergedRefDataUrl = rawUserDataUrl;
+  }
+
+  const referenceImageDataUrl = mergedRefDataUrl
+    ? await normalizeReferenceImageForEdit(mergedRefDataUrl)
     : null;
   throwIfAborted(params.signal);
-  const chosenExtra = (params.useReferenceImage || referenceImageDataUrl)
+
+  const hasAnyPerson = Boolean(params.useReferenceImage || params.useUserReferenceImage || referenceImageDataUrl);
+  const chosenExtra = hasAnyPerson
     ? openaiSettings.extraPrompt
     : (openaiSettings.sceneExtraPrompt || openaiSettings.extraPrompt);
-  const prompt = mergePrompt(description, chosenExtra);
+
+  const anchorParts: string[] = [];
+  if (params.useReferenceImage && charRef?.anchorPrompt?.trim()) {
+    anchorParts.push(charRef.anchorPrompt.trim());
+  }
+  if (params.useUserReferenceImage && userRef?.anchorPrompt?.trim()) {
+    anchorParts.push(userRef.anchorPrompt.trim());
+  }
+
+  let finalDesc = description;
+  if (anchorParts.length > 0) {
+    const anchorsJoined = anchorParts.join(", ");
+    finalDesc = `${anchorsJoined}, ${description}`;
+  }
+
+  const prompt = mergePrompt(finalDesc, chosenExtra);
 
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })
@@ -827,4 +860,43 @@ export function hasCharacterReferenceImage(characterId?: string): boolean {
   const settings = loadImageGenerationSettings();
   const ref = settings.characterReferences?.[characterId];
   return Boolean(ref?.assetId);
+}
+
+export function hasUserReferenceImage(): boolean {
+  const settings = loadImageGenerationSettings();
+  return Boolean(settings.userReference?.assetId);
+}
+
+export async function combineDualReferenceImages(img1DataUrl: string, img2DataUrl: string): Promise<string> {
+  if (typeof window === "undefined") return img1DataUrl;
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const i1 = new Image();
+    const i2 = new Image();
+    let loaded = 0;
+    const check = () => {
+      loaded++;
+      if (loaded === 2 && ctx) {
+        const targetH = Math.max(i1.height, i2.height) || 1024;
+        const w1 = (i1.width / (i1.height || targetH)) * targetH;
+        const w2 = (i2.width / (i2.height || targetH)) * targetH;
+        canvas.width = w1 + w2;
+        canvas.height = targetH;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(i1, 0, 0, w1, targetH);
+        ctx.drawImage(i2, w1, 0, w2, targetH);
+        resolve(canvas.toDataURL("image/png"));
+      }
+    };
+    i1.crossOrigin = "anonymous";
+    i2.crossOrigin = "anonymous";
+    i1.onload = check;
+    i2.onload = check;
+    i1.onerror = () => resolve(img1DataUrl);
+    i2.onerror = () => resolve(img1DataUrl);
+    i1.src = img1DataUrl;
+    i2.src = img2DataUrl;
+  });
 }

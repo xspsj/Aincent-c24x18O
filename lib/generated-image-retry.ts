@@ -40,7 +40,7 @@ export function isPendingChatGeneratedImageMessage(message: Pick<ChatMessage, "m
 export async function generateAndApplyChatGeneratedImage(
     message: ChatMessage,
     characterId?: string,
-    options?: { signal?: AbortSignal; description?: string; useReferenceImage?: boolean },
+    options?: { signal?: AbortSignal; description?: string; useReferenceImage?: boolean; useUserReferenceImage?: boolean },
 ): Promise<ChatMessage> {
     const previousDescription = message.mediaData?.label?.trim() || "";
     const description = (options?.description ?? previousDescription).trim();
@@ -49,6 +49,9 @@ export async function generateAndApplyChatGeneratedImage(
     const effectiveUseReference = options?.useReferenceImage !== undefined
         ? options.useReferenceImage
         : (message.mediaData?.useReferenceImage === true);
+    const effectiveUseUserReference = options?.useUserReferenceImage !== undefined
+        ? options.useUserReferenceImage
+        : (message.mediaData?.useUserReferenceImage === true);
 
     if (
         (previousDescription && previousDescription !== description) ||
@@ -65,6 +68,7 @@ export async function generateAndApplyChatGeneratedImage(
                 ...message.mediaData,
                 label: description,
                 useReferenceImage: effectiveUseReference,
+                useUserReferenceImage: effectiveUseUserReference,
                 imageGenerationStatus: "pending",
                 imageGenerationError: undefined,
             },
@@ -77,6 +81,7 @@ export async function generateAndApplyChatGeneratedImage(
             description,
             characterId,
             useReferenceImage: effectiveUseReference,
+            useUserReferenceImage: effectiveUseUserReference,
             signal: options?.signal,
         });
         if (!generated) throw new Error("生图配置未启用或不完整");
@@ -124,10 +129,12 @@ export async function retryChatGeneratedImage(
     characterId?: string,
     nextDescription?: string,
     useReferenceImage?: boolean,
+    useUserReferenceImage?: boolean,
 ): Promise<ChatMessage> {
     return generateAndApplyChatGeneratedImage(message, characterId, {
         description: nextDescription,
         useReferenceImage,
+        useUserReferenceImage,
     });
 }
 
