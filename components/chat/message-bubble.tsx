@@ -21,7 +21,7 @@ import remarkGfm from "remark-gfm";
 import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkBreaks from "remark-breaks";
 import { createPortal } from "react-dom";
-import { Blocks, Maximize2, ReceiptText } from "lucide-react";
+import { Blocks, Maximize2, ReceiptText, Sparkles } from "lucide-react";
 import { retryChatGeneratedImage } from "@/lib/generated-image-retry";
 import { hasCharacterReferenceImage } from "@/lib/image-generation-service";
 import { GeneratedImageErrorDialog } from "./generated-image-error-dialog";
@@ -1400,7 +1400,6 @@ function ImageBubble({
             </div>
         );
     }
-
     const isManualTrigger = d?.imageGenerationStatus === "manual";
 
     return (
