@@ -685,7 +685,6 @@ export const DEFAULT_NOVELAI_PRESET: import("./settings-types").NovelAiPreset = 
 
 export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     enabled: false,
-    triggerMode: "auto",
     provider: "openai",
     requestMode: "direct",
     apiKey: "",
@@ -694,7 +693,6 @@ export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     size: "1024x1024",
     quality: "auto",
     extraPrompt: "",
-    sceneExtraPrompt: "",
     novelai: {
         apiKey: "",
         activePresetId: DEFAULT_NOVELAI_PRESET.id,
@@ -740,7 +738,6 @@ function normalizeOpenAiPreset(preset: Partial<OpenAiImagePreset> | null | undef
         size: typeof preset?.size === "string" ? preset.size : DEFAULT_IMAGE_GENERATION_SETTINGS.size,
         quality: typeof preset?.quality === "string" ? preset.quality : DEFAULT_IMAGE_GENERATION_SETTINGS.quality,
         extraPrompt: typeof preset?.extraPrompt === "string" ? preset.extraPrompt : "",
-        sceneExtraPrompt: typeof preset?.sceneExtraPrompt === "string" ? preset.sceneExtraPrompt : "",
     };
 }
 
@@ -763,7 +760,6 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
         ? Math.max(64 * 1024, Math.min(32 * 1024 * 1024, Math.floor(hosting.maxUploadBytes)))
         : DEFAULT_IMAGE_GENERATION_SETTINGS.imageHosting.maxUploadBytes;
 
-    const triggerMode = settings?.triggerMode === "manual" ? "manual" : "auto";
     const rawOpenAiPresets = settings?.openaiPresets;
     const openaiPresets = Array.isArray(rawOpenAiPresets) && rawOpenAiPresets.length > 0
         ? rawOpenAiPresets.map((preset, index) => normalizeOpenAiPreset(preset, index))
@@ -777,7 +773,6 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
             size: settings?.size,
             quality: settings?.quality,
             extraPrompt: settings?.extraPrompt,
-            sceneExtraPrompt: settings?.sceneExtraPrompt,
         }, 0)];
     const activeOpenAiPresetId = typeof settings?.activeOpenAiPresetId === "string"
         && openaiPresets.some(preset => preset.id === settings.activeOpenAiPresetId)
@@ -803,7 +798,6 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
     return {
         ...DEFAULT_IMAGE_GENERATION_SETTINGS,
         ...(settings || {}),
-        triggerMode,
         provider,
         requestMode: activeOpenAiPreset.requestMode,
         apiKey: activeOpenAiPreset.apiKey,
@@ -812,11 +806,11 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
         size: activeOpenAiPreset.size,
         quality: activeOpenAiPreset.quality,
         extraPrompt: activeOpenAiPreset.extraPrompt,
-        sceneExtraPrompt: activeOpenAiPreset.sceneExtraPrompt || "",
         openaiPresets,
         activeOpenAiPresetId,
         novelai,
         characterReferences: refs,
+        userReference: settings?.userReference && typeof settings.userReference === "object" ? settings.userReference : undefined,
         imageHosting: {
             ...DEFAULT_IMAGE_GENERATION_SETTINGS.imageHosting,
             ...hosting,

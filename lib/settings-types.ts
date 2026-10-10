@@ -181,8 +181,6 @@ export type ImageGenerationProvider = "openai" | "novelai";
 
 export type ImageGenerationRequestMode = "server" | "direct";
 
-export type ImageGenerationTriggerMode = "auto" | "manual";
-
 export type OpenAiImagePreset = {
     id: string;
     name: string;
@@ -193,7 +191,6 @@ export type OpenAiImagePreset = {
     size: string;
     quality: string;
     extraPrompt: string;
-    sceneExtraPrompt?: string;
 };
 
 export type ImageHostingProvider = "none" | "imgbb";
@@ -231,7 +228,6 @@ export type NovelAiSettings = {
 
 export type ImageGenerationSettings = {
     enabled: boolean;
-    triggerMode?: ImageGenerationTriggerMode;
     provider?: ImageGenerationProvider;
     requestMode: ImageGenerationRequestMode;
     // OpenAI 模式配置（旧字段保留用于兼容迁移）
@@ -241,15 +237,20 @@ export type ImageGenerationSettings = {
     size: string;
     quality: string;
     extraPrompt: string;
-    sceneExtraPrompt?: string;
     openaiPresets?: OpenAiImagePreset[];
     activeOpenAiPresetId?: string;
     // NovelAI 模式配置
     novelai?: NovelAiSettings;
     characterReferences: Record<string, {
         assetId: string;
+        anchorPrompt?: string;
         updatedAt: number;
     }>;
+    userReference?: {
+        assetId: string;
+        anchorPrompt?: string;
+        updatedAt: number;
+    };
     imageHosting: ImageHostingSettings;
 };
 
