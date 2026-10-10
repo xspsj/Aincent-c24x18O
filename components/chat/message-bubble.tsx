@@ -1400,17 +1400,34 @@ function ImageBubble({
             </div>
         );
     }
+
+    const isManualTrigger = d?.imageGenerationStatus === "manual";
+
     return (
-        <div className="chat-generated-image-retry-stack">
+        <div className="chat-generated-image-retry-stack flex flex-col gap-1.5">
             <div
                 className="chat-photo-card w-[180px] aspect-square rounded-none"
                 style={{ cursor: "pointer" }}
                 onClick={e => { e.stopPropagation(); setShowPreview(true); }}
             >
-                <div className="chat-photo-card-placeholder w-full h-full flex items-center justify-center px-5">
-                    <div className="chat-photo-card-text">{label}</div>
+                <div className="chat-photo-card-placeholder w-full h-full flex flex-col items-center justify-center p-3 text-center">
+                    <div className="chat-photo-card-text line-clamp-3 text-xs opacity-90">{label}</div>
                 </div>
             </div>
+            {isManualTrigger && (
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        openPromptEditor();
+                    }}
+                    disabled={regenerating}
+                    className="ui-btn ui-btn-primary min-h-[30px] !py-1 !px-2 text-xs w-[180px] flex items-center justify-center gap-1 shadow-sm"
+                >
+                    <Sparkles size={13} />
+                    <span>{regenerating ? "正在生成..." : "点击生成图片"}</span>
+                </button>
+            )}
             {previewAndDialog}
         </div>
     );

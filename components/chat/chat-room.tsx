@@ -2750,6 +2750,20 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         guard?: GenerationRunGuard,
     ): Promise<ChatMessage | null> => {
         if (!isPendingChatGeneratedImageMessage(message)) return Promise.resolve(null);
+        const imgSettings = loadImageGenerationSettings();
+        // 手动模式下不自动调用 API 生成，保留占位卡片让用户手动点击生成
+        if (imgSettings.triggerMode === "manual") {
+            const manualUpdated = updateChatMessage(message.id, {
+                mediaData: {
+                    ...message.mediaData,
+                    imageGenerationStatus: "manual",
+                },
+            });
+            if (manualUpdated) {
+                setMessages(prev => prev.map(m => m.id === manualUpdated.id ? manualUpdated : m));
+            }
+            return Promise.resolve(manualUpdated || null);
+        }
         return generateAndApplyChatGeneratedImage(message, characterId || session.contactId, { signal: guard?.signal })
             .catch(error => {
                 if (!isAbortLikeError(error)) {
