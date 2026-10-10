@@ -788,7 +788,10 @@ export async function generateImageFromConfiguredApi(params: {
     ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl)
     : null;
   throwIfAborted(params.signal);
-  const prompt = mergePrompt(description, openaiSettings.extraPrompt);
+  const chosenExtra = (params.useReferenceImage || referenceImageDataUrl)
+    ? openaiSettings.extraPrompt
+    : (openaiSettings.sceneExtraPrompt || openaiSettings.extraPrompt);
+  const prompt = mergePrompt(description, chosenExtra);
 
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })

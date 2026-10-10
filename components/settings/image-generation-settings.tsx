@@ -145,13 +145,13 @@ export function ImageGenerationSettings() {
     const updateOpenAiPreset = useCallback((patch: Partial<OpenAiImagePreset>) => {
         const nextPresets = openaiPresets.map(preset => preset.id === activeOpenAiPresetId ? { ...preset, ...patch } : preset);
         const active = nextPresets.find(preset => preset.id === activeOpenAiPresetId) || nextPresets[0];
-        persist({ ...settings, openaiPresets: nextPresets, activeOpenAiPresetId, requestMode: active.requestMode, apiKey: active.apiKey, baseUrl: active.baseUrl, model: active.model, size: active.size, quality: active.quality, extraPrompt: active.extraPrompt });
+        persist({ ...settings, openaiPresets: nextPresets, activeOpenAiPresetId, requestMode: active.requestMode, apiKey: active.apiKey, baseUrl: active.baseUrl, model: active.model, size: active.size, quality: active.quality, extraPrompt: active.extraPrompt, sceneExtraPrompt: active.sceneExtraPrompt });
     }, [activeOpenAiPresetId, openaiPresets, persist, settings]);
 
     const addOpenAiPreset = useCallback(() => {
         const newId = `preset_openai_${Date.now()}`;
         const newPreset = { ...activeOpenAiPreset, id: newId, name: `${activeOpenAiPreset.name || "默认方案"}（副本）` };
-        persist({ ...settings, openaiPresets: [...openaiPresets, newPreset], activeOpenAiPresetId: newId, requestMode: newPreset.requestMode, apiKey: newPreset.apiKey, baseUrl: newPreset.baseUrl, model: newPreset.model, size: newPreset.size, quality: newPreset.quality, extraPrompt: newPreset.extraPrompt });
+        persist({ ...settings, openaiPresets: [...openaiPresets, newPreset], activeOpenAiPresetId: newId, requestMode: newPreset.requestMode, apiKey: newPreset.apiKey, baseUrl: newPreset.baseUrl, model: newPreset.model, size: newPreset.size, quality: newPreset.quality, extraPrompt: newPreset.extraPrompt, sceneExtraPrompt: newPreset.sceneExtraPrompt });
     }, [activeOpenAiPreset, openaiPresets, persist, settings]);
 
     const deleteOpenAiPreset = useCallback(() => {
@@ -337,13 +337,31 @@ export function ImageGenerationSettings() {
                         <Sparkles size={22} strokeWidth={1.75} />
                     </span>
                     <span className="settings-tools-menu-copy">
-                        <span className="menu-label appearance-menu-item-label">启用自动生图</span>
-                        <span className="menu-desc settings-tools-menu-desc">角色输出照片标签时自动调用图像生成 API。</span>
+                        <span className="menu-label appearance-menu-item-label">启用生图功能</span>
+                        <span className="menu-desc settings-tools-menu-desc">开启后支持聊天与朋友圈中的图像生成。</span>
                     </span>
                     <span className="menu-right settings-tools-menu-toggle">
                         <Toggle checked={settings.enabled} onChange={(enabled) => updateSettings({ enabled })} className="settings-toggle-control" />
                     </span>
                 </div>
+                {settings.enabled && (
+                    <div className="menu-item border-t border-[var(--c-card-border)]/50">
+                        <span className="settings-tools-menu-copy pl-2">
+                            <span className="menu-label appearance-menu-item-label">调用生图模式</span>
+                            <span className="menu-desc settings-tools-menu-desc">选择角色输出照片时的触发机制。</span>
+                        </span>
+                        <span className="menu-right">
+                            <Select
+                                value={settings.triggerMode || "auto"}
+                                onChange={(e) => updateSettings({ triggerMode: e.target.value as "auto" | "manual" })}
+                                className="!w-32 text-xs"
+                            >
+                                <option value="auto">自动生图</option>
+                                <option value="manual">手动生图</option>
+                            </Select>
+                        </span>
+                    </div>
+                )}
             </div>
 
             <div className="menu-group p-4 flex flex-col gap-4">
@@ -717,16 +735,26 @@ export function ImageGenerationSettings() {
                         </div>
 
                         <div className="flex flex-col gap-1">
-                            <label className="menu-desc ml-1">补充提示词</label>
+                            <label className="menu-desc ml-1 font-medium text-foreground">人物 / 角色提示词 (开启参考图或有人物时)</label>
                             <Textarea
                                 value={activeOpenAiPreset.extraPrompt}
                                 onChange={(event) => updateOpenAiPreset({ extraPrompt: event.target.value })}
-                                placeholder="会和角色输出的图片描述一起发送给生图模型。"
-                                rows={4}
+                                placeholder="包含角色肖像质量词、画风、面部或身材锁定提示词，与参考图结合时生效。"
+                                rows={3}
                             />
                             <p className="menu-desc ml-1 opacity-70">
-                                选择尺寸后会自动在末尾追加一句「{RATIO_HINT_MARKER}…」构图提示，用于纠正部分不认 size 参数的接口（如 gpt-image-2）。可手动修改或删除。
+                                选择尺寸后会自动在末尾追加「{RATIO_HINT_MARKER}…」构图提示，可按需保留或编辑。
                             </p>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <label className="menu-desc ml-1 font-medium text-foreground">纯场景 / 静物提示词 (无人物或未开参考图时)</label>
+                            <Textarea
+                                value={activeOpenAiPreset.sceneExtraPrompt || ""}
+                                onChange={(event) => updateOpenAiPreset({ sceneExtraPrompt: event.target.value })}
+                                placeholder="例如：scenery, landscape, masterpiece, high quality, no humans, atmospheric lighting（仅在纯风景/物品时生效，避免误画人物）。"
+                                rows={3}
+                            />
                         </div>
                     </>
                 )}
