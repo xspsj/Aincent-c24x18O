@@ -636,7 +636,7 @@ export function VoiceCallScreen({ session, character, onEnd, onConnect, initiato
         const endMsg = pushChatMessage({
             sessionId: session.id,
             role: "user",
-            content: `我挂断了语音通话`,
+            content: `[我挂断了语音通话]`,
             mediaData: { callDuration: formatTime(callDuration) },
         });
         messagesRef.current = [...messagesRef.current, endMsg];
@@ -668,7 +668,7 @@ export function VoiceCallScreen({ session, character, onEnd, onConnect, initiato
         const endMsg = pushChatMessage({
             sessionId: session.id,
             role: "assistant",
-            content: `${charName}挂断了语音通话`,
+            content: `[${charName}挂断了语音通话]`,
             mediaData: { callDuration: durStr },
         });
         messagesRef.current = [...messagesRef.current, endMsg];

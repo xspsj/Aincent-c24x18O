@@ -21,9 +21,9 @@ import remarkGfm from "remark-gfm";
 import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkBreaks from "remark-breaks";
 import { createPortal } from "react-dom";
-import { Blocks, Maximize2, ReceiptText } from "lucide-react";
+import { Blocks, Maximize2, ReceiptText, Sparkles } from "lucide-react";
 import { retryChatGeneratedImage } from "@/lib/generated-image-retry";
-import { hasCharacterReferenceImage } from "@/lib/image-generation-service";
+import { hasCharacterReferenceImage, hasUserReferenceImage } from "@/lib/image-generation-service";
 import { GeneratedImageErrorDialog } from "./generated-image-error-dialog";
 import { ScanPayCard } from "@/components/chat/scan-pay-card";
 import { payWithWalletBalance } from "@/lib/wallet-storage";
@@ -1182,6 +1182,9 @@ function GeneratedImagePromptDialog({
     useReferenceImage,
     onUseReferenceImageChange,
     hasReferenceImage,
+    useUserReferenceImage,
+    onUseUserReferenceImageChange,
+    hasUserReferenceImage,
 }: {
     value: string;
     onChange: (value: string) => void;
@@ -1192,6 +1195,9 @@ function GeneratedImagePromptDialog({
     useReferenceImage: boolean;
     onUseReferenceImageChange: (useRef: boolean) => void;
     hasReferenceImage: boolean;
+    useUserReferenceImage?: boolean;
+    onUseUserReferenceImageChange?: (useRef: boolean) => void;
+    hasUserReferenceImage?: boolean;
 }) {
     return (
         <div
@@ -1207,41 +1213,62 @@ function GeneratedImagePromptDialog({
                 onCancel();
             }}
         >
-            <div className="modal-dialog chat-generated-image-prompt-dialog" data-ui="modal-dialog" onClick={e => e.stopPropagation()}>
+            <div className="modal-dialog chat-generated-image-prompt-dialog max-w-[360px]" data-ui="modal-dialog" onClick={e => e.stopPropagation()}>
                 <div className="modal-header" data-ui="modal-header">
-                    <h3 className="modal-title">重新生成图片</h3>
+                    <h3 className="modal-title">生成图片</h3>
                 </div>
-                <div className="modal-body chat-generated-image-prompt-body" data-ui="modal-body">
+                <div className="modal-body chat-generated-image-prompt-body flex flex-col gap-3" data-ui="modal-body">
                     <textarea
                         className="ui-textarea chat-generated-image-prompt-textarea"
                         value={value}
                         onChange={e => onChange(e.target.value)}
-                        placeholder="输入图片提示词"
+                        placeholder="输入画面描述..."
+                        rows={3}
                         disabled={busy}
                     />
-                    {hasReferenceImage ? (
-                        <label className="chat-generated-image-prompt-check">
-                            <input
-                                type="checkbox"
-                                checked={useReferenceImage}
-                                disabled={busy}
-                            onChange={e => onUseReferenceImageChange(e.target.checked)}
-                            />
-                            <span>使用角色参考图（角色出镜）</span>
-                        </label>
-                    ) : (
-                        <div className="chat-generated-image-prompt-empty-hint">该角色未配置参考图</div>
-                    )}
-                    {error && <div className="chat-generated-image-retry-error">{error}</div>}
+                    <div className="flex flex-col gap-2 rounded-xl bg-[var(--c-input)]/40 p-2.5 border border-[var(--c-card-border)]/40">
+                        {hasReferenceImage ? (
+                            <label className="chat-generated-image-prompt-check flex items-center gap-2 cursor-pointer text-xs">
+                                <input
+                                    type="checkbox"
+                                    checked={useReferenceImage}
+                                    disabled={busy}
+                                    onChange={e => onUseReferenceImageChange(e.target.checked)}
+                                    className="rounded"
+                                />
+                                <span className="font-medium text-foreground">使用角色参考图（角色出镜）</span>
+                            </label>
+                        ) : (
+                            <div className="text-[11px] text-[var(--c-icon)]/70">角色未配置参考图</div>
+                        )}
+                        {hasUserReferenceImage ? (
+                            <label className="chat-generated-image-prompt-check flex items-center gap-2 cursor-pointer text-xs">
+                                <input
+                                    type="checkbox"
+                                    checked={useUserReferenceImage ?? false}
+                                    disabled={busy}
+                                    onChange={e => onUseUserReferenceImageChange?.(e.target.checked)}
+                                    className="rounded"
+                                />
+                                <span className="font-medium text-foreground">使用我的参考图（我出镜）</span>
+                            </label>
+                        ) : (
+                            <div className="text-[11px] text-[var(--c-icon)]/70">我 (User) 未配置参考图</div>
+                        )}
+                        {useReferenceImage && useUserReferenceImage && (
+                            <div className="text-[11px] text-[var(--c-theme)] mt-0.5">已开启双人图模式（合并两人参考图并携带专属锚点词）</div>
+                        )}
+                    </div>
+                    {error && <div className="chat-generated-image-retry-error text-xs text-red-500">{error}</div>}
                 </div>
                 <div className="modal-footer" data-ui="modal-footer">
-                    <button className="ui-btn ui-btn-ghost" onClick={onCancel}>取消</button>
+                    <button className="ui-btn ui-btn-ghost text-xs" onClick={onCancel}>取消</button>
                     <button
-                        className="ui-btn ui-btn-action"
+                        className="ui-btn ui-btn-action text-xs"
                         disabled={busy || !value.trim()}
                         onClick={onConfirm}
                     >
-                        生成
+                        {busy ? "生成中..." : "开始生成"}
                     </button>
                 </div>
             </div>
@@ -1275,8 +1302,11 @@ function ImageBubble({
     const canRegenerate = Boolean(d?.label?.trim());
     const [showPreview, setShowPreview] = useState(false);
 
-    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(characterId));
+    const effectiveCharId = characterId || msg.senderCharacterId;
+    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(effectiveCharId));
+    const [hasUserRef, setHasUserRef] = useState(() => hasUserReferenceImage());
     const [useReferenceDraft, setUseReferenceDraft] = useState(d?.useReferenceImage === true);
+    const [useUserReferenceDraft, setUseUserReferenceDraft] = useState(d?.useUserReferenceImage === true);
 
     useEffect(() => {
         if (!isMediaStoreRef(rawUrl)) {
@@ -1293,13 +1323,16 @@ function ImageBubble({
     }, [rawUrl]);
 
     const openPromptEditor = useCallback(() => {
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveCharId);
+        const latestHasUserRef = hasUserReferenceImage();
         setHasRef(latestHasRef);
+        setHasUserRef(latestHasUserRef);
         setPromptDraft(d?.label?.trim() || "");
         setUseReferenceDraft(latestHasRef && d?.useReferenceImage === true);
+        setUseUserReferenceDraft(latestHasUserRef && d?.useUserReferenceImage === true);
         setRetryError("");
         setShowPromptEditor(true);
-    }, [characterId, d?.label, d?.useReferenceImage]);
+    }, [effectiveCharId, d?.label, d?.useReferenceImage, d?.useUserReferenceImage]);
 
     const handleRetry = useCallback(() => {
         const nextDescription = promptDraft.trim();
@@ -1307,11 +1340,18 @@ function ImageBubble({
             setRetryError("提示词不能为空");
             return;
         }
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveCharId);
+        const latestHasUserRef = hasUserReferenceImage();
         setShowPromptEditor(false);
         setRegenerating(true);
         setRetryError("");
-        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? useReferenceDraft : undefined)
+        retryChatGeneratedImage(
+            msg,
+            effectiveCharId,
+            nextDescription,
+            latestHasRef ? useReferenceDraft : undefined,
+            latestHasUserRef ? useUserReferenceDraft : undefined,
+        )
             .then(async (updated) => {
                 if (updated?.mediaUrl) {
                     try {
@@ -1352,6 +1392,9 @@ function ImageBubble({
                     useReferenceImage={useReferenceDraft}
                     onUseReferenceImageChange={setUseReferenceDraft}
                     hasReferenceImage={hasRef}
+                    useUserReferenceImage={useUserReferenceDraft}
+                    onUseUserReferenceImageChange={setUseUserReferenceDraft}
+                    hasUserReferenceImage={hasUserRef}
                     onConfirm={handleRetry}
                     onCancel={() => setShowPromptEditor(false)}
                     busy={regenerating}
@@ -1959,17 +2002,23 @@ function MediaFileBubble({
         setProgress(audio.currentTime / audio.duration);
     }, []);
 
-    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(characterId));
+    const effectiveMediaCharId = characterId || msg.senderCharacterId;
+    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(effectiveMediaCharId));
+    const [hasUserRef, setHasUserRef] = useState(() => hasUserReferenceImage());
     const [imageUseReferenceDraft, setImageUseReferenceDraft] = useState(msg.mediaData?.useReferenceImage === true);
+    const [imageUseUserReferenceDraft, setImageUseUserReferenceDraft] = useState(msg.mediaData?.useUserReferenceImage === true);
 
     const openImagePromptEditor = useCallback(() => {
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveMediaCharId);
+        const latestHasUserRef = hasUserReferenceImage();
         setHasRef(latestHasRef);
+        setHasUserRef(latestHasUserRef);
         setImagePromptDraft(msg.mediaData?.label?.trim() || "");
         setImageUseReferenceDraft(latestHasRef && msg.mediaData?.useReferenceImage === true);
+        setImageUseUserReferenceDraft(latestHasUserRef && msg.mediaData?.useUserReferenceImage === true);
         setImageRetryError("");
         setShowImagePromptEditor(true);
-    }, [characterId, msg.mediaData?.label, msg.mediaData?.useReferenceImage]);
+    }, [effectiveMediaCharId, msg.mediaData?.label, msg.mediaData?.useReferenceImage, msg.mediaData?.useUserReferenceImage]);
 
     const handleRegenerateImage = useCallback(() => {
         const nextDescription = imagePromptDraft.trim();
@@ -1977,11 +2026,18 @@ function MediaFileBubble({
             setImageRetryError("提示词不能为空");
             return;
         }
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveMediaCharId);
+        const latestHasUserRef = hasUserReferenceImage();
         setShowImagePromptEditor(false);
         setImageRegenerating(true);
         setImageRetryError("");
-        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? imageUseReferenceDraft : undefined)
+        retryChatGeneratedImage(
+            msg,
+            effectiveMediaCharId,
+            nextDescription,
+            latestHasRef ? imageUseReferenceDraft : undefined,
+            latestHasUserRef ? imageUseUserReferenceDraft : undefined,
+        )
             .then(async (updated) => {
                 if (updated?.mediaUrl) {
                     try {
@@ -2121,6 +2177,9 @@ function MediaFileBubble({
                         useReferenceImage={imageUseReferenceDraft}
                         onUseReferenceImageChange={setImageUseReferenceDraft}
                         hasReferenceImage={hasRef}
+                        useUserReferenceImage={imageUseUserReferenceDraft}
+                        onUseUserReferenceImageChange={setImageUseUserReferenceDraft}
+                        hasUserReferenceImage={hasUserRef}
                         onConfirm={handleRegenerateImage}
                         onCancel={() => setShowImagePromptEditor(false)}
                         busy={imageRegenerating}

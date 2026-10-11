@@ -43,7 +43,7 @@ import { TransferTargetModal } from "./transfer-target-modal";
 import { GiftPickerModal } from "./gift-picker-modal";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { deleteWeixinCloudMessagesFromCloud, emitWeixinSyncToast, syncAllWeixinBotRuntimesToCloud } from "@/lib/weixin-cloud-sync";
-import { loadBindingConfig, loadPresets, loadRegexes, resolveBinding, resolveUserIdentity } from "@/lib/settings-storage";
+import { loadBindingConfig, loadImageGenerationSettings, loadPresets, loadRegexes, resolveBinding, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateGroupChatCompletion, generateGroupOfflineChatCompletion, parseGroupChatResponse, buildEditableGroupRoundText } from "@/lib/group-chat-engine";
 import { appendChatOfflineTurn, deleteChatOfflineTurn, deleteChatOfflineTurnsFrom, extractThinkingTag, loadChatOfflineTurns, parseOfflineResponse, saveChatOfflineTurns, updateChatOfflineTurn, type ChatOfflineTurn } from "@/lib/chat-offline-storage";
 import { applyDisplayRegex, applyEditRegex } from "@/lib/llm-prompt-assembler";
@@ -2737,10 +2737,16 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         if (!description) return draft;
 
         throwIfGenerationStopped(guard);
+        const imgSettings = loadImageGenerationSettings();
+        const initialStatus = imgSettings.triggerMode === "manual" ? "manual" : "pending";
         return {
             ...draft,
             mediaType: "image",
-            mediaData: createPendingChatGeneratedImageData(part.mediaData, description),
+            mediaData: {
+                ...(part.mediaData || {}),
+                label: description,
+                imageGenerationStatus: initialStatus,
+            },
         };
     };
 
@@ -2749,7 +2755,10 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         characterId?: string,
         guard?: GenerationRunGuard,
     ): Promise<ChatMessage | null> => {
-        if (!isPendingChatGeneratedImageMessage(message)) return Promise.resolve(null);
+        const imgSettings = loadImageGenerationSettings();
+        if (imgSettings.triggerMode === "manual" || !isPendingChatGeneratedImageMessage(message)) {
+            return Promise.resolve(null);
+        }
         return generateAndApplyChatGeneratedImage(message, characterId || session.contactId, { signal: guard?.signal })
             .catch(error => {
                 if (!isAbortLikeError(error)) {

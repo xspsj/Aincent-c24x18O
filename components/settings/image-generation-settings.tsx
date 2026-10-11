@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { AlertCircle, Camera, ChevronDown, Image, Info, Plus, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
+import { AlertCircle, Anchor, Camera, ChevronDown, Image, Info, Plus, RefreshCw, Sparkles, Trash2, Upload, User } from "lucide-react";
 import type { ImageGenerationSettings as ImageGenerationSettingsType, NovelAiPreset, OpenAiImagePreset } from "@/lib/settings-types";
 import {
     DEFAULT_IMAGE_GENERATION_SETTINGS,
@@ -77,6 +77,9 @@ export function ImageGenerationSettings() {
     const [testPreviewUrl, setTestPreviewUrl] = useState<string | null>(null);
     const [pendingDeletePresetId, setPendingDeletePresetId] = useState<string | null>(null);
     const [pendingDeleteOpenAiPresetId, setPendingDeleteOpenAiPresetId] = useState<string | null>(null);
+    const [userPreview, setUserPreview] = useState<string | null>(null);
+    const [editingAnchorTarget, setEditingAnchorTarget] = useState<{ id: string; name: string; isUser: boolean; initialPrompt: string } | null>(null);
+    const [anchorDraft, setAnchorDraft] = useState("");
     const openaiPresets = useMemo<OpenAiImagePreset[]>(() => (
         settings.openaiPresets?.length ? settings.openaiPresets : [{
             id: "preset_openai_default",
@@ -124,8 +127,17 @@ export function ImageGenerationSettings() {
             }
             setReferencePreviews(next);
         });
+
+        if (settings.userReference?.assetId) {
+            getChatImageFromIndexedDB(settings.userReference.assetId).then(dataUrl => {
+                if (!cancelled) setUserPreview(dataUrl);
+            });
+        } else {
+            setUserPreview(null);
+        }
+
         return () => { cancelled = true; };
-    }, [settings.characterReferences]);
+    }, [settings.characterReferences, settings.userReference]);
 
     useEffect(() => {
         return () => {
@@ -325,6 +337,54 @@ export function ImageGenerationSettings() {
         });
     };
 
+    const uploadUserReference = async (file: File) => {
+        const assetId = await saveChatImageToIndexedDB(file);
+        persist({
+            ...settings,
+            userReference: {
+                assetId,
+                anchorPrompt: settings.userReference?.anchorPrompt || "",
+                updatedAt: Date.now(),
+            },
+        });
+    };
+
+    const removeUserReference = () => {
+        persist({
+            ...settings,
+            userReference: undefined,
+        });
+        setUserPreview(null);
+    };
+
+    const saveAnchorPrompt = () => {
+        if (!editingAnchorTarget) return;
+        if (editingAnchorTarget.isUser) {
+            persist({
+                ...settings,
+                userReference: {
+                    assetId: settings.userReference?.assetId || "",
+                    anchorPrompt: anchorDraft.trim(),
+                    updatedAt: Date.now(),
+                },
+            });
+        } else {
+            const charRef = settings.characterReferences?.[editingAnchorTarget.id];
+            persist({
+                ...settings,
+                characterReferences: {
+                    ...(settings.characterReferences || {}),
+                    [editingAnchorTarget.id]: {
+                        assetId: charRef?.assetId || "",
+                        anchorPrompt: anchorDraft.trim(),
+                        updatedAt: Date.now(),
+                    },
+                },
+            });
+        }
+        setEditingAnchorTarget(null);
+    };
+
     return (
         <div className="flex flex-col gap-6 pb-8">
             <div className="flex items-center">
@@ -337,13 +397,31 @@ export function ImageGenerationSettings() {
                         <Sparkles size={22} strokeWidth={1.75} />
                     </span>
                     <span className="settings-tools-menu-copy">
-                        <span className="menu-label appearance-menu-item-label">启用自动生图</span>
-                        <span className="menu-desc settings-tools-menu-desc">角色输出照片标签时自动调用图像生成 API。</span>
+                        <span className="menu-label appearance-menu-item-label">启用生图功能</span>
+                        <span className="menu-desc settings-tools-menu-desc">开启后支持聊天与朋友圈中的图像生成。</span>
                     </span>
                     <span className="menu-right settings-tools-menu-toggle">
                         <Toggle checked={settings.enabled} onChange={(enabled) => updateSettings({ enabled })} className="settings-toggle-control" />
                     </span>
                 </div>
+                {settings.enabled && (
+                    <div className="menu-item border-t border-[var(--c-card-border)]/50">
+                        <span className="settings-tools-menu-copy pl-2">
+                            <span className="menu-label appearance-menu-item-label">调用生图模式</span>
+                            <span className="menu-desc settings-tools-menu-desc">选择角色输出照片时的触发机制。</span>
+                        </span>
+                        <span className="menu-right">
+                            <Select
+                                value={settings.triggerMode || "auto"}
+                                onChange={(e) => updateSettings({ triggerMode: e.target.value as "auto" | "manual" })}
+                                className="!w-32 text-xs"
+                            >
+                                <option value="auto">自动生图</option>
+                                <option value="manual">手动生图</option>
+                            </Select>
+                        </span>
+                    </div>
+                )}
             </div>
 
             <div className="menu-group p-4 flex flex-col gap-4">
@@ -717,16 +795,26 @@ export function ImageGenerationSettings() {
                         </div>
 
                         <div className="flex flex-col gap-1">
-                            <label className="menu-desc ml-1">补充提示词</label>
+                            <label className="menu-desc ml-1 font-medium text-foreground">人物 / 角色提示词 (开启参考图或有人物时)</label>
                             <Textarea
                                 value={activeOpenAiPreset.extraPrompt}
                                 onChange={(event) => updateOpenAiPreset({ extraPrompt: event.target.value })}
-                                placeholder="会和角色输出的图片描述一起发送给生图模型。"
-                                rows={4}
+                                placeholder="包含角色肖像质量词、画风、面部或身材锁定提示词，与参考图结合时生效。"
+                                rows={3}
                             />
                             <p className="menu-desc ml-1 opacity-70">
-                                选择尺寸后会自动在末尾追加一句「{RATIO_HINT_MARKER}…」构图提示，用于纠正部分不认 size 参数的接口（如 gpt-image-2）。可手动修改或删除。
+                                选择尺寸后会自动在末尾追加「{RATIO_HINT_MARKER}…」构图提示，可按需保留或编辑。
                             </p>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <label className="menu-desc ml-1 font-medium text-foreground">纯场景 / 静物提示词 (无人物或未开参考图时)</label>
+                            <Textarea
+                                value={activeOpenAiPreset.sceneExtraPrompt || ""}
+                                onChange={(event) => updateOpenAiPreset({ sceneExtraPrompt: event.target.value })}
+                                placeholder="例如：scenery, landscape, masterpiece, high quality, no humans, atmospheric lighting（仅在纯风景/物品时生效，避免误画人物）。"
+                                rows={3}
+                            />
                         </div>
                     </>
                 )}
@@ -866,8 +954,77 @@ export function ImageGenerationSettings() {
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">
-                    <p className="settings-menu-section-title">Character References</p>
-                    <div className="menu-group">
+                    <p className="settings-menu-section-title">References & Anchors</p>
+                    <div className="menu-group divide-y divide-[var(--c-card-border)]/40">
+                        {/* 用户参考图与锚点项 */}
+                        <div className="flex flex-col p-3 gap-2">
+                            <div className="flex items-center gap-3">
+                                <span className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-[var(--c-input)] flex items-center justify-center">
+                                    {userPreview ? (
+                                        <img src={userPreview} alt="User" className="h-full w-full object-cover" />
+                                    ) : (
+                                        <User size={20} className="text-[var(--c-icon)]" />
+                                    )}
+                                </span>
+                                <span className="min-w-0 flex flex-1 flex-col">
+                                    <span className="menu-label truncate font-medium">我的参考图 (User)</span>
+                                    <span className="menu-desc truncate">{userPreview ? "已上传" : "未上传参考图"}</span>
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        className="ui-link-btn"
+                                        aria-label="上传我的参考图"
+                                        onClick={() => {
+                                            const input = document.createElement("input");
+                                            input.type = "file";
+                                            input.accept = "image/*";
+                                            input.onchange = async () => {
+                                                const file = input.files?.[0];
+                                                if (file) await uploadUserReference(file);
+                                            };
+                                            input.click();
+                                        }}
+                                    >
+                                        <Upload size={18} />
+                                    </button>
+                                    {userPreview && (
+                                        <button
+                                            type="button"
+                                            className="ui-link-btn"
+                                            data-variant="danger"
+                                            aria-label="删除我的参考图"
+                                            onClick={removeUserReference}
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 pl-14">
+                                <span className="text-xs text-[var(--c-icon)] shrink-0 flex items-center gap-1">
+                                    <Anchor size={12} />
+                                    <span>锚点词:</span>
+                                </span>
+                                <div
+                                    onClick={() => {
+                                        const prompt = settings.userReference?.anchorPrompt || "";
+                                        setEditingAnchorTarget({ id: "user", name: "我 (User)", isUser: true, initialPrompt: prompt });
+                                        setAnchorDraft(prompt);
+                                    }}
+                                    className="flex-1 cursor-pointer truncate rounded-lg bg-[var(--c-input)]/60 px-2.5 py-1 text-xs text-[var(--c-text)] hover:bg-[var(--c-input)] transition-colors border border-[var(--c-card-border)]/50"
+                                    title="点击编辑锚点词"
+                                >
+                                    {settings.userReference?.anchorPrompt ? (
+                                        <span className="truncate">{settings.userReference.anchorPrompt}</span>
+                                    ) : (
+                                        <span className="text-[var(--c-icon)]/60 italic">点击添加专属锚点词（发型、外貌、LoRA tag 等）...</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 角色参考图与锚点列表 */}
                         {characters.length === 0 ? (
                             <div className="ui-empty py-8">
                                 <Camera size={22} />
@@ -875,56 +1032,129 @@ export function ImageGenerationSettings() {
                             </div>
                         ) : characters.map(character => {
                             const preview = referencePreviews[character.id];
+                            const charRef = settings.characterReferences?.[character.id];
                             return (
-                                <div key={character.id} className="menu-item">
-                                <span className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-[var(--c-input)]">
-                                    {preview ? (
-                                        <img src={preview} alt="" className="h-full w-full object-cover" />
-                                    ) : character.avatar ? (
-                                        <img src={character.avatar} alt="" className="h-full w-full object-cover" />
-                                    ) : (
-                                        <span className="flex h-full w-full items-center justify-center ts-13 font-semibold text-[var(--c-icon)]">
-                                            {character.name.slice(0, 1)}
+                                <div key={character.id} className="flex flex-col p-3 gap-2">
+                                    <div className="flex items-center gap-3">
+                                        <span className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-[var(--c-input)]">
+                                            {preview ? (
+                                                <img src={preview} alt="" className="h-full w-full object-cover" />
+                                            ) : character.avatar ? (
+                                                <img src={character.avatar} alt="" className="h-full w-full object-cover" />
+                                            ) : (
+                                                <span className="flex h-full w-full items-center justify-center ts-13 font-semibold text-[var(--c-icon)]">
+                                                    {character.name.slice(0, 1)}
+                                                </span>
+                                            )}
                                         </span>
-                                    )}
-                                </span>
-                                <span className="min-w-0 flex flex-1 flex-col">
-                                    <span className="menu-label truncate">{character.name}</span>
-                                    <span className="menu-desc truncate">{preview ? "已上传参考图" : "未上传参考图"}</span>
-                                </span>
-                                <span className="menu-right flex gap-2">
-                                    <button
-                                        type="button"
-                                        className="ui-link-btn"
-                                        aria-label={`上传 ${character.name} 的参考图`}
-                                        onClick={() => {
-                                            const input = document.createElement("input");
-                                            input.type = "file";
-                                            input.accept = "image/*";
-                                            input.onchange = async () => {
-                                                const file = input.files?.[0];
-                                                if (file) await uploadReference(character.id, file);
-                                            };
-                                            input.click();
-                                        }}
-                                    >
-                                        <Upload size={18} />
-                                    </button>
-                                    {preview && (
-                                        <button
-                                            type="button"
-                                            className="ui-link-btn"
-                                            data-variant="danger"
-                                            aria-label={`删除 ${character.name} 的参考图`}
-                                            onClick={() => removeReference(character.id)}
+                                        <span className="min-w-0 flex flex-1 flex-col">
+                                            <span className="menu-label truncate font-medium">{character.name}</span>
+                                            <span className="menu-desc truncate">{preview ? "已上传" : "未上传参考图"}</span>
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                className="ui-link-btn"
+                                                aria-label={`上传 ${character.name} 的参考图`}
+                                                onClick={() => {
+                                                    const input = document.createElement("input");
+                                                    input.type = "file";
+                                                    input.accept = "image/*";
+                                                    input.onchange = async () => {
+                                                        const file = input.files?.[0];
+                                                        if (file) await uploadReference(character.id, file);
+                                                    };
+                                                    input.click();
+                                                }}
+                                            >
+                                                <Upload size={18} />
+                                            </button>
+                                            {preview && (
+                                                <button
+                                                    type="button"
+                                                    className="ui-link-btn"
+                                                    data-variant="danger"
+                                                    aria-label={`删除 ${character.name} 的参考图`}
+                                                    onClick={() => removeReference(character.id)}
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 pl-14">
+                                        <span className="text-xs text-[var(--c-icon)] shrink-0 flex items-center gap-1">
+                                            <Anchor size={12} />
+                                            <span>锚点词:</span>
+                                        </span>
+                                        <div
+                                            onClick={() => {
+                                                const prompt = charRef?.anchorPrompt || "";
+                                                setEditingAnchorTarget({ id: character.id, name: character.name, isUser: false, initialPrompt: prompt });
+                                                setAnchorDraft(prompt);
+                                            }}
+                                            className="flex-1 cursor-pointer truncate rounded-lg bg-[var(--c-input)]/60 px-2.5 py-1 text-xs text-[var(--c-text)] hover:bg-[var(--c-input)] transition-colors border border-[var(--c-card-border)]/50"
+                                            title="点击编辑锚点词"
                                         >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    )}
-                                </span>
+                                            {charRef?.anchorPrompt ? (
+                                                <span className="truncate">{charRef.anchorPrompt}</span>
+                                            ) : (
+                                                <span className="text-[var(--c-icon)]/60 italic">点击添加专属锚点词（发型、外貌、特征 tag 等）...</span>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             );
                         })}
+                    </div>
+                </div>
+            )}
+
+            {editingAnchorTarget && (
+                <div
+                    className="modal-overlay"
+                    data-ui="modal"
+                    onClick={() => setEditingAnchorTarget(null)}
+                >
+                    <div
+                        className="modal-dialog max-w-[420px] w-full"
+                        data-ui="modal-dialog"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="modal-header" data-ui="modal-header">
+                            <h3 className="modal-title flex items-center gap-2">
+                                <Anchor size={18} className="text-[var(--c-theme)]" />
+                                <span>编辑「{editingAnchorTarget.name}」的生图锚点词</span>
+                            </h3>
+                        </div>
+                        <div className="modal-body flex flex-col gap-3" data-ui="modal-body">
+                            <p className="text-xs text-[var(--c-icon)] leading-relaxed">
+                                锚点词用于固定该人物的独有特征（如发色、发型、常服、标志特征或 LoRA 触发词）。生图并启用此人参考图时，会自动拼入提示词中。
+                            </p>
+                            <Textarea
+                                value={anchorDraft}
+                                onChange={(e) => setAnchorDraft(e.target.value)}
+                                placeholder="例如：1girl, black long hair, brown eyes, red scarf, aesthetic"
+                                rows={5}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="modal-footer flex justify-end gap-2" data-ui="modal-footer">
+                            <button
+                                type="button"
+                                className="ui-btn ui-btn-ghost text-xs"
+                                onClick={() => setEditingAnchorTarget(null)}
+                            >
+                                取消
+                            </button>
+                            <button
+                                type="button"
+                                className="ui-btn ui-btn-primary text-xs"
+                                onClick={saveAnchorPrompt}
+                            >
+                                保存
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
