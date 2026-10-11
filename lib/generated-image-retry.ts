@@ -55,7 +55,8 @@ export async function generateAndApplyChatGeneratedImage(
 
     if (
         (previousDescription && previousDescription !== description) ||
-        (options?.useReferenceImage !== undefined && options.useReferenceImage !== (message.mediaData?.useReferenceImage === true))
+        (options?.useReferenceImage !== undefined && options.useReferenceImage !== (message.mediaData?.useReferenceImage === true)) ||
+        (options?.useUserReferenceImage !== undefined && options.useUserReferenceImage !== (message.mediaData?.useUserReferenceImage === true))
     ) {
         syncChatGeneratedImagePromptText(message.id, previousDescription, description, options?.useReferenceImage);
     }

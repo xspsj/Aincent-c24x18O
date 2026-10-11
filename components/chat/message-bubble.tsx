@@ -1195,9 +1195,9 @@ function GeneratedImagePromptDialog({
     useReferenceImage: boolean;
     onUseReferenceImageChange: (useRef: boolean) => void;
     hasReferenceImage: boolean;
-    useUserReferenceImage: boolean;
-    onUseUserReferenceImageChange: (useRef: boolean) => void;
-    hasUserReferenceImage: boolean;
+    useUserReferenceImage?: boolean;
+    onUseUserReferenceImageChange?: (useRef: boolean) => void;
+    hasUserReferenceImage?: boolean;
 }) {
     return (
         <div
@@ -1245,9 +1245,9 @@ function GeneratedImagePromptDialog({
                             <label className="chat-generated-image-prompt-check flex items-center gap-2 cursor-pointer text-xs">
                                 <input
                                     type="checkbox"
-                                    checked={useUserReferenceImage}
+                                    checked={useUserReferenceImage ?? false}
                                     disabled={busy}
-                                    onChange={e => onUseUserReferenceImageChange(e.target.checked)}
+                                    onChange={e => onUseUserReferenceImageChange?.(e.target.checked)}
                                     className="rounded"
                                 />
                                 <span className="font-medium text-foreground">使用我的参考图（我出镜）</span>
@@ -1302,7 +1302,8 @@ function ImageBubble({
     const canRegenerate = Boolean(d?.label?.trim());
     const [showPreview, setShowPreview] = useState(false);
 
-    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(characterId));
+    const effectiveCharId = characterId || msg.senderCharacterId;
+    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(effectiveCharId));
     const [hasUserRef, setHasUserRef] = useState(() => hasUserReferenceImage());
     const [useReferenceDraft, setUseReferenceDraft] = useState(d?.useReferenceImage === true);
     const [useUserReferenceDraft, setUseUserReferenceDraft] = useState(d?.useUserReferenceImage === true);
@@ -1322,7 +1323,7 @@ function ImageBubble({
     }, [rawUrl]);
 
     const openPromptEditor = useCallback(() => {
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveCharId);
         const latestHasUserRef = hasUserReferenceImage();
         setHasRef(latestHasRef);
         setHasUserRef(latestHasUserRef);
@@ -1331,7 +1332,7 @@ function ImageBubble({
         setUseUserReferenceDraft(latestHasUserRef && d?.useUserReferenceImage === true);
         setRetryError("");
         setShowPromptEditor(true);
-    }, [characterId, d?.label, d?.useReferenceImage, d?.useUserReferenceImage]);
+    }, [effectiveCharId, d?.label, d?.useReferenceImage, d?.useUserReferenceImage]);
 
     const handleRetry = useCallback(() => {
         const nextDescription = promptDraft.trim();
@@ -1339,14 +1340,14 @@ function ImageBubble({
             setRetryError("提示词不能为空");
             return;
         }
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveCharId);
         const latestHasUserRef = hasUserReferenceImage();
         setShowPromptEditor(false);
         setRegenerating(true);
         setRetryError("");
         retryChatGeneratedImage(
             msg,
-            characterId,
+            effectiveCharId,
             nextDescription,
             latestHasRef ? useReferenceDraft : undefined,
             latestHasUserRef ? useUserReferenceDraft : undefined,
@@ -2001,17 +2002,23 @@ function MediaFileBubble({
         setProgress(audio.currentTime / audio.duration);
     }, []);
 
-    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(characterId));
+    const effectiveMediaCharId = characterId || msg.senderCharacterId;
+    const [hasRef, setHasRef] = useState(() => hasCharacterReferenceImage(effectiveMediaCharId));
+    const [hasUserRef, setHasUserRef] = useState(() => hasUserReferenceImage());
     const [imageUseReferenceDraft, setImageUseReferenceDraft] = useState(msg.mediaData?.useReferenceImage === true);
+    const [imageUseUserReferenceDraft, setImageUseUserReferenceDraft] = useState(msg.mediaData?.useUserReferenceImage === true);
 
     const openImagePromptEditor = useCallback(() => {
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveMediaCharId);
+        const latestHasUserRef = hasUserReferenceImage();
         setHasRef(latestHasRef);
+        setHasUserRef(latestHasUserRef);
         setImagePromptDraft(msg.mediaData?.label?.trim() || "");
         setImageUseReferenceDraft(latestHasRef && msg.mediaData?.useReferenceImage === true);
+        setImageUseUserReferenceDraft(latestHasUserRef && msg.mediaData?.useUserReferenceImage === true);
         setImageRetryError("");
         setShowImagePromptEditor(true);
-    }, [characterId, msg.mediaData?.label, msg.mediaData?.useReferenceImage]);
+    }, [effectiveMediaCharId, msg.mediaData?.label, msg.mediaData?.useReferenceImage, msg.mediaData?.useUserReferenceImage]);
 
     const handleRegenerateImage = useCallback(() => {
         const nextDescription = imagePromptDraft.trim();
@@ -2019,11 +2026,18 @@ function MediaFileBubble({
             setImageRetryError("提示词不能为空");
             return;
         }
-        const latestHasRef = hasCharacterReferenceImage(characterId);
+        const latestHasRef = hasCharacterReferenceImage(effectiveMediaCharId);
+        const latestHasUserRef = hasUserReferenceImage();
         setShowImagePromptEditor(false);
         setImageRegenerating(true);
         setImageRetryError("");
-        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? imageUseReferenceDraft : undefined)
+        retryChatGeneratedImage(
+            msg,
+            effectiveMediaCharId,
+            nextDescription,
+            latestHasRef ? imageUseReferenceDraft : undefined,
+            latestHasUserRef ? imageUseUserReferenceDraft : undefined,
+        )
             .then(async (updated) => {
                 if (updated?.mediaUrl) {
                     try {
@@ -2163,6 +2177,9 @@ function MediaFileBubble({
                         useReferenceImage={imageUseReferenceDraft}
                         onUseReferenceImageChange={setImageUseReferenceDraft}
                         hasReferenceImage={hasRef}
+                        useUserReferenceImage={imageUseUserReferenceDraft}
+                        onUseUserReferenceImageChange={setImageUseUserReferenceDraft}
+                        hasUserReferenceImage={hasUserRef}
                         onConfirm={handleRegenerateImage}
                         onCancel={() => setShowImagePromptEditor(false)}
                         busy={imageRegenerating}

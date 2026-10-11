@@ -95,7 +95,6 @@ function loadDataUrlImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 async function normalizeReferenceImageForEdit(dataUrl: string): Promise<string> {
-  if (dataUrlMimeType(dataUrl) === "image/png") return dataUrl;
   if (typeof document === "undefined") return dataUrl;
 
   try {
@@ -104,15 +103,63 @@ async function normalizeReferenceImageForEdit(dataUrl: string): Promise<string> 
     const height = image.naturalHeight || image.height;
     if (!width || !height) return dataUrl;
 
+    // 统一规范化为 1024x1024 正方形标准画布，居中并保留比例绘制，防止尺寸非标被生图接口丢弃
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = 1024;
+    canvas.height = 1024;
     const context = canvas.getContext("2d");
     if (!context) return dataUrl;
-    context.drawImage(image, 0, 0, width, height);
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, 1024, 1024);
+
+    const scale = Math.min(1024 / width, 1024 / height);
+    const renderW = width * scale;
+    const renderH = height * scale;
+    const offsetX = (1024 - renderW) / 2;
+    const offsetY = (1024 - renderH) / 2;
+
+    context.drawImage(image, offsetX, offsetY, renderW, renderH);
     return canvas.toDataURL("image/png");
   } catch {
     return dataUrl;
+  }
+}
+
+export async function combineDualReferenceImages(img1DataUrl: string, img2DataUrl: string): Promise<string> {
+  if (typeof document === "undefined") return img1DataUrl;
+  try {
+    const i1 = await loadDataUrlImage(img1DataUrl);
+    const i2 = await loadDataUrlImage(img2DataUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return img1DataUrl;
+
+    // 标准正方形白色底板，左右各占一半 (512x1024)，均等比居中绘制
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 1024, 1024);
+
+    // 绘制左半边 (第1张图)
+    const w1 = i1.naturalWidth || i1.width;
+    const h1 = i1.naturalHeight || i1.height;
+    const scale1 = Math.min(512 / w1, 1024 / h1);
+    const rw1 = w1 * scale1;
+    const rh1 = h1 * scale1;
+    ctx.drawImage(i1, (512 - rw1) / 2, (1024 - rh1) / 2, rw1, rh1);
+
+    // 绘制右半边 (第2张图)
+    const w2 = i2.naturalWidth || i2.width;
+    const h2 = i2.naturalHeight || i2.height;
+    const scale2 = Math.min(512 / w2, 1024 / h2);
+    const rw2 = w2 * scale2;
+    const rh2 = h2 * scale2;
+    ctx.drawImage(i2, 512 + (512 - rw2) / 2, (1024 - rh2) / 2, rw2, rh2);
+
+    return canvas.toDataURL("image/png");
+  } catch {
+    return img1DataUrl;
   }
 }
 
@@ -795,36 +842,43 @@ export async function generateImageFromConfiguredApi(params: {
   if (rawCharDataUrl && rawUserDataUrl) {
     mergedRefDataUrl = await combineDualReferenceImages(rawCharDataUrl, rawUserDataUrl);
   } else if (rawCharDataUrl) {
-    mergedRefDataUrl = rawCharDataUrl;
+    mergedRefDataUrl = await normalizeReferenceImageForEdit(rawCharDataUrl);
   } else if (rawUserDataUrl) {
-    mergedRefDataUrl = rawUserDataUrl;
+    mergedRefDataUrl = await normalizeReferenceImageForEdit(rawUserDataUrl);
   }
 
-  const referenceImageDataUrl = mergedRefDataUrl
-    ? await normalizeReferenceImageForEdit(mergedRefDataUrl)
-    : null;
+  const referenceImageDataUrl = mergedRefDataUrl;
   throwIfAborted(params.signal);
 
   const hasAnyPerson = Boolean(params.useReferenceImage || params.useUserReferenceImage || referenceImageDataUrl);
-  const chosenExtra = hasAnyPerson
-    ? openaiSettings.extraPrompt
-    : (openaiSettings.sceneExtraPrompt || openaiSettings.extraPrompt);
+  const stylePrompt = hasAnyPerson
+    ? (openaiSettings.extraPrompt || "").trim()
+    : (openaiSettings.sceneExtraPrompt || openaiSettings.extraPrompt || "").trim();
 
-  const anchorParts: string[] = [];
+  // 结构化喂给模型：画风与画质要求 + 人物外观与锚点锁定 + 场景描述
+  const promptSections: string[] = [];
+
+  if (stylePrompt) {
+    promptSections.push(`【画风与画面质感】\n${stylePrompt}`);
+  }
+
+  const anchorLines: string[] = [];
   if (params.useReferenceImage && charRef?.anchorPrompt?.trim()) {
-    anchorParts.push(charRef.anchorPrompt.trim());
+    anchorLines.push(`- 角色外观/独有特征: ${charRef.anchorPrompt.trim()}`);
   }
   if (params.useUserReferenceImage && userRef?.anchorPrompt?.trim()) {
-    anchorParts.push(userRef.anchorPrompt.trim());
+    anchorLines.push(`- 用户/我外观/独有特征: ${userRef.anchorPrompt.trim()}`);
   }
 
-  let finalDesc = description;
-  if (anchorParts.length > 0) {
-    const anchorsJoined = anchorParts.join(", ");
-    finalDesc = `${anchorsJoined}, ${description}`;
+  if (anchorLines.length > 0) {
+    promptSections.push(
+      `【人物外观与锚点特征（必须严格符合参考图与以下特征，不可遗漏）】\n${anchorLines.join("\n")}\n（要求：面部五官必须与提供的参考图保持一致，同时严格包含上述独有面部锚点特征）`
+    );
   }
 
-  const prompt = mergePrompt(finalDesc, chosenExtra);
+  promptSections.push(`【画面主体与场景描述】\n${description}`);
+
+  const prompt = promptSections.join("\n\n");
 
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })
@@ -865,38 +919,4 @@ export function hasCharacterReferenceImage(characterId?: string): boolean {
 export function hasUserReferenceImage(): boolean {
   const settings = loadImageGenerationSettings();
   return Boolean(settings.userReference?.assetId);
-}
-
-export async function combineDualReferenceImages(img1DataUrl: string, img2DataUrl: string): Promise<string> {
-  if (typeof window === "undefined") return img1DataUrl;
-  return new Promise((resolve) => {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const i1 = new Image();
-    const i2 = new Image();
-    let loaded = 0;
-    const check = () => {
-      loaded++;
-      if (loaded === 2 && ctx) {
-        const targetH = Math.max(i1.height, i2.height) || 1024;
-        const w1 = (i1.width / (i1.height || targetH)) * targetH;
-        const w2 = (i2.width / (i2.height || targetH)) * targetH;
-        canvas.width = w1 + w2;
-        canvas.height = targetH;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(i1, 0, 0, w1, targetH);
-        ctx.drawImage(i2, w1, 0, w2, targetH);
-        resolve(canvas.toDataURL("image/png"));
-      }
-    };
-    i1.crossOrigin = "anonymous";
-    i2.crossOrigin = "anonymous";
-    i1.onload = check;
-    i2.onload = check;
-    i1.onerror = () => resolve(img1DataUrl);
-    i2.onerror = () => resolve(img1DataUrl);
-    i1.src = img1DataUrl;
-    i2.src = img2DataUrl;
-  });
 }
