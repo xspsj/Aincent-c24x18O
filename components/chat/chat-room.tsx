@@ -2841,17 +2841,17 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
-        // 检查 AI 是否在自然对白中表达了换头像（口头配合，无需严格输出标签）
+        // 角色自然对白换头像兼容兜底（口头配合）：
         if (session.contactId && !session.isGroup) {
-            const hasSpokenChangeAvatar = rawParts.some(p => !p.mediaType && /(?:换好了|换上啦|换上去了|换了|换个头像|换上这个|这就换|头像换好了)/.test(p.content));
+            const hasSpokenChangeAvatar = rawParts.some(p => !p.mediaType && /(?:换好了|换上啦|换上去了|换了|换个头像|这就换)/.test(p.content));
             if (hasSpokenChangeAvatar) {
                 const freshMsgs = loadChatMessages(session.id);
                 const lastUserMessages = [...freshMsgs].reverse().slice(0, 5);
-                const userRecentlyAsked = lastUserMessages.some(m => m.role === "user" && /(?:换这个头像|换头像|换上这个|用这个做头像|换情头|情头)/.test(m.content));
+                const userRecentlyAsked = lastUserMessages.some(m => m.role === "user" && /(?:换这个头像|换头像|换上这个|用这个做头像|换情头|情头|换这个)/.test(m.content));
                 const lastUserImg = lastUserMessages.find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
                 if (userRecentlyAsked && lastUserImg?.mediaUrl) {
                     const avatarUrl = lastUserImg.mediaUrl;
-                    const avatarDesc = "你发给我的情头";
+                    const avatarDesc = lastUserImg.mediaData?.label || "你送我的情头";
                     addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
                     const allSessions = loadChatSessions();
                     const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
@@ -2859,6 +2859,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     session.customCharAvatar = avatarUrl;
                     session.customCharAvatarDesc = avatarDesc;
                     window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
                 }
             }
         }
@@ -2899,9 +2900,9 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 });
                 continue;
             }
-            // 角色主动换头像动作：[换头像:描述] 或 [换头像:图片URL:描述]，或在自然语言中确认换头像
+            // 角色换头像动作支持：[换头像:描述]
             if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "change_avatar") {
-                const avatarDesc = p.mediaData?.avatarDesc || "";
+                const avatarDesc = p.mediaData?.avatarDesc || "新头像";
                 let avatarUrl = p.mediaData?.avatarUrl || "";
                 if (!avatarUrl && session.contactId) {
                     const vault = getCharacterChatAvatars(session.contactId);
@@ -2910,20 +2911,20 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         avatarUrl = matched.url;
                     } else {
                         const freshMsgs = loadChatMessages(session.id);
-                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || m.mediaType === "media_file" && m.mediaData?.fileType === "image"));
+                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
                         if (lastUserImg?.mediaUrl) avatarUrl = lastUserImg.mediaUrl;
                     }
                 }
                 if (avatarUrl && session.contactId) {
-                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc || `${charN}的新头像`, "user_sent");
+                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
                     const allSessions = loadChatSessions();
                     const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
                     saveChatSessions(nextSessions);
                     session.customCharAvatar = avatarUrl;
                     session.customCharAvatarDesc = avatarDesc;
                     window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
                 }
-                // 完全静默：不生成任何系统提示消息，就像现实中对方自己换好头像一样
                 continue;
             }
             pushFilteredPart(p);

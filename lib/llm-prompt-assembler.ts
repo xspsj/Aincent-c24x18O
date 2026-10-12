@@ -1038,6 +1038,18 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
         });
     }
 
+    // 角色独立网络头像支持：如果用户最近发了图片，注入动作规则教 AI 换头像
+    const hasRecentUserImage = history.slice(-5).some(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+    if (hasRecentUserImage) {
+        blocks.push({
+            text: "【系统动作提醒】当对方在聊天中发了图片并建议/要求你更换头像，若你同意换上该头像，请在回复末尾附带指令：[换头像:简短描述]（例如：[换头像:捏脸灰发男] 或 [换头像:你送我的情头]）。系统会自动为你换上并显示专属头像，该指令会被系统捕获执行，不会作为对话文本展示。",
+            role: "system",
+            depth: 0,
+            order: 9999,
+            marker: "change-avatar-action-rule",
+        });
+    }
+
     // --- Sort: depth descending, then order ascending ---
     blocks.sort((a, b) => {
         if (b.depth !== a.depth) return b.depth - a.depth;
