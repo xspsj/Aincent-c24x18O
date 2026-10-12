@@ -4,7 +4,7 @@
 
 import { useState, useEffect } from "react";
 import { PageShell } from "@/components/ui/page-shell";
-import { User, Image as ImageIcon, Plus, Trash2, Check, Sparkles, RefreshCw, UserCheck } from "lucide-react";
+import { User, Image as ImageIcon, Plus, Trash2, Check, Sparkles, RefreshCw } from "lucide-react";
 import {
     getCharacterChatAvatars,
     addCharacterChatAvatar,
@@ -12,7 +12,7 @@ import {
     type ChatAvatarItem,
 } from "@/lib/chat-avatar-storage";
 import { loadCharacters, saveCharacters } from "@/lib/character-storage";
-import { resolveUserIdentity, saveUserIdentity } from "@/lib/settings-storage";
+import { resolveUserIdentity, loadUserIdentities, saveUserIdentities } from "@/lib/settings-storage";
 import { loadChatSessions, saveChatSessions, type ChatSession } from "@/lib/chat-storage";
 
 interface ChatAvatarPanelProps {
@@ -144,6 +144,7 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
             setUserChatAvatar(dataUrl);
             window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
             window.dispatchEvent(new CustomEvent("chat-messages-updated", { detail: { sessionId: currentSession.id } }));
+            window.dispatchEvent(new CustomEvent("chat-open-session", { detail: { sessionId: currentSession.id } }));
         } catch {
             alert("更换失败");
         }
@@ -164,6 +165,7 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
         setUserChatAvatar("");
         window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
         window.dispatchEvent(new CustomEvent("chat-messages-updated", { detail: { sessionId: currentSession.id } }));
+        window.dispatchEvent(new CustomEvent("chat-open-session", { detail: { sessionId: currentSession.id } }));
     };
 
     // 仅修改角色卡主图（完全保留各阶段好感度立绘与全部字段）
@@ -192,7 +194,7 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
         }
     };
 
-    // 修改我自己的全局个人资料主头像（不与角色卡混在一起）
+    // 修改我自己的全局个人资料主头像（修复 saveUserIdentities 报错）
     const handleUpdateMyProfileAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -203,11 +205,15 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
                 reader.onerror = reject;
                 reader.readAsDataURL(file);
             });
-            const currentIdentity = resolveUserIdentity(undefined, "chat") || { name: "我" };
-            saveUserIdentity({
-                ...currentIdentity,
-                avatarUrl: dataUrl,
+            const currentIdentity = resolveUserIdentity(undefined, "chat");
+            const allIdentities = loadUserIdentities();
+            const updated = allIdentities.map(item => {
+                if (item.id === currentIdentity?.id || (!currentIdentity && item.id === allIdentities[0]?.id)) {
+                    return { ...item, avatarUrl: dataUrl };
+                }
+                return item;
             });
+            saveUserIdentities(updated.length > 0 ? updated : [{ id: "identity-1", name: "我", avatarUrl: dataUrl, bio: "", gender: "保密", age: "未知", occupation: "", customSettings: "" }]);
             alert("我的个人资料头像已更新");
             refreshData();
         } catch (err) {
@@ -216,7 +222,7 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
     };
 
     return (
-        <PageShell title="聊天独立网络头像" onBack={onBack} className="fixed inset-0 z-[100] bg-[var(--c-page-bg,#000)]">
+        <PageShell title="聊天独立网络头像" onBack={onBack} className="fixed inset-0 z-[120] bg-[var(--c-page-bg,#000)]">
             <div className="flex flex-col h-full bg-[var(--c-page-body-bg)] overflow-hidden">
                 {/* 角色切换条 */}
                 <div className="px-5 pt-3 pb-2 flex items-center gap-2 overflow-x-auto shrink-0 no-scrollbar border-b border-[var(--c-card-border)]/30">

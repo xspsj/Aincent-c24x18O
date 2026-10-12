@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import {
     loadFollowUpConfig,
@@ -491,8 +492,9 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                 </div>
             </PageShell>
 
-            {showAvatarPanel && (
-                <ChatAvatarPanel onBack={() => { setShowAvatarPanel(false); window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); }} />
+            {showAvatarPanel && createPortal(
+                <ChatAvatarPanel onBack={() => { setShowAvatarPanel(false); window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); }} />,
+                document.querySelector(".phone-shell") ?? document.body
             )}
         </>
     );
