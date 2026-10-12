@@ -334,7 +334,8 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
                 </div>,
                 document.querySelector(".phone-shell") ?? document.body
             )}
-        </PageShell>
+            </div>
+       </PageShell>
     );
 }
 
