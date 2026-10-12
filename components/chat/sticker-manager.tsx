@@ -185,7 +185,10 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
                         <span className="ts-14 font-medium text-[var(--c-text)]">新建图集</span>
                     </button>
                 </div>
+                )}
             </div>
+
+            {showCreateDialog && createPortal(
 
             {showCreateDialog && createPortal(
                 <CreatePackDialog
