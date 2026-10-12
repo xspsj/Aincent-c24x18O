@@ -98,11 +98,11 @@ function isCallSysMsg(msg: ChatMessage): boolean {
     return CALL_SYS_RE.test(msg.content);
 }
 /** Returns the effective UI role: call messages render as "system" regardless of stored role */
-const ACTION_MEDIA_TYPES = new Set(["poke", "accept_red_packet", "decline_red_packet", "accept_transfer", "decline_transfer", "accept_payment_request", "decline_payment_request", "group_admin_notice", "tool_notice"]);
+const ACTION_MEDIA_TYPES = new Set(["poke", "accept_red_packet", "decline_red_packet", "accept_transfer", "decline_transfer", "accept_payment_request", "decline_payment_request", "group_admin_notice"]);
 // 拍一拍/群管理通知/通话留痕渲染成灰色系统小字，没有 💭 面板入口——
 // 状态栏/内心独白/状态值挂上去会被显示层吞掉，挂载时必须跳过它们
 function canCarryFoldedPanel(part: { content?: string; mediaType?: ChatMessage["mediaType"] }): boolean {
-    if (part.mediaType === "poke" || part.mediaType === "group_admin_notice" || part.mediaType === "tool_notice") return false;
+    if (part.mediaType === "poke" || part.mediaType === "group_admin_notice") return false;
     return !CALL_SYS_RE.test(part.content || "");
 }
 function uiRole(msg: ChatMessage): string {
@@ -2536,34 +2536,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     });
                     continue;
                 }
-                // 群聊角色换头像
-                if (part.mediaType === "tool_notice" && part.mediaData?.customActionType === "change_avatar") {
-                    const avatarDesc = part.mediaData?.avatarDesc || "";
-                    let avatarUrl = part.mediaData?.avatarUrl || "";
-                    if (!avatarUrl && r.characterId) {
-                        const vault = getCharacterChatAvatars(r.characterId);
-                        const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
-                        if (matched) avatarUrl = matched.url;
-                    }
-                    if (avatarUrl && r.characterId) {
-                        addCharacterChatAvatar(r.characterId, avatarUrl, avatarDesc || `${r.characterName}的新头像`, "user_sent");
-                    }
-                    const msg = pushChatMessage({
-                        sessionId: session.id, role: "assistant",
-                        content: `${r.characterName}换上了新头像${avatarDesc ? `：${avatarDesc}` : ""}`,
-                        mediaType: "tool_notice",
-                        mediaData: part.mediaData,
-                        responseBatchId,
-                        rawResponseText: r.responseText,
-                        responseRoundId,
-                        editableResponseText,
-                        senderCharacterId: r.characterId,
-                        senderName: r.characterName,
-                    });
-                    savedAnyPart = true;
-                    msgsSetter(prev => [...prev, msg]);
-                    continue;
-                }
                 if (!isFirst && !revealOptions?.instantReveal) await abortableDelay(800, guard?.signal);
                 throwIfGenerationStopped(guard);
                 isFirst = false;
@@ -2869,6 +2841,28 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
+        // 检查 AI 是否在自然对白中表达了换头像（口头配合，无需严格输出标签）
+        if (session.contactId && !session.isGroup) {
+            const hasSpokenChangeAvatar = rawParts.some(p => !p.mediaType && /(?:换好了|换上啦|换上去了|换了|换个头像|换上这个|这就换|头像换好了)/.test(p.content));
+            if (hasSpokenChangeAvatar) {
+                const freshMsgs = loadChatMessages(session.id);
+                const lastUserMessages = [...freshMsgs].reverse().slice(0, 5);
+                const userRecentlyAsked = lastUserMessages.some(m => m.role === "user" && /(?:换这个头像|换头像|换上这个|用这个做头像|换情头|情头)/.test(m.content));
+                const lastUserImg = lastUserMessages.find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+                if (userRecentlyAsked && lastUserImg?.mediaUrl) {
+                    const avatarUrl = lastUserImg.mediaUrl;
+                    const avatarDesc = "你发给我的情头";
+                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
+                    saveChatSessions(nextSessions);
+                    session.customCharAvatar = avatarUrl;
+                    session.customCharAvatarDesc = avatarDesc;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                }
+            }
+        }
+
         for (const p of parts) {
             throwIfGenerationStopped(options);
             if (p.mediaType === "voice_call") { triggerCall = "voice"; continue; }
@@ -2905,23 +2899,19 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 });
                 continue;
             }
-            // 角色主动换头像动作：[换头像:描述] 或 [换头像:图片URL:描述]
+            // 角色主动换头像动作：[换头像:描述] 或 [换头像:图片URL:描述]，或在自然语言中确认换头像
             if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "change_avatar") {
                 const avatarDesc = p.mediaData?.avatarDesc || "";
                 let avatarUrl = p.mediaData?.avatarUrl || "";
-                // 如果没有提供 URL，尝试从角色的网络头像库里按描述匹配，或者从上一条用户发的图片消息里取
                 if (!avatarUrl && session.contactId) {
                     const vault = getCharacterChatAvatars(session.contactId);
                     const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
                     if (matched) {
                         avatarUrl = matched.url;
                     } else {
-                        // 回溯最近一条用户发的图片消息
                         const freshMsgs = loadChatMessages(session.id);
                         const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || m.mediaType === "media_file" && m.mediaData?.fileType === "image"));
-                        if (lastUserImg?.mediaUrl) {
-                            avatarUrl = lastUserImg.mediaUrl;
-                        }
+                        if (lastUserImg?.mediaUrl) avatarUrl = lastUserImg.mediaUrl;
                     }
                 }
                 if (avatarUrl && session.contactId) {
@@ -2933,11 +2923,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     session.customCharAvatarDesc = avatarDesc;
                     window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
                 }
-                pushFilteredPart({
-                    content: `${charN}换上了新头像${avatarDesc ? `：${avatarDesc}` : ""}`,
-                    mediaType: "tool_notice",
-                    mediaData: p.mediaData,
-                });
+                // 完全静默：不生成任何系统提示消息，就像现实中对方自己换好头像一样
                 continue;
             }
             pushFilteredPart(p);
