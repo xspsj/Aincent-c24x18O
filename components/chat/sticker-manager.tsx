@@ -37,6 +37,10 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [deletingPackId, setDeletingPackId] = useState<string | null>(null);
 
+    // 图二核心：【按图集】与【按角色】切换
+    const [tab, setTab] = useState<"packs" | "characters">("packs");
+    const [managingChar, setManagingChar] = useState<Character | null>(null);
+
     const refresh = () => setPacks(loadStickerPacks());
     useEffect(() => { refresh(); }, []);
 
@@ -58,8 +62,64 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
 
     return (
         <PageShell title="表情包管理" onBack={onBack} className="absolute inset-0 z-[100]">
-            <div className="px-5 pt-4 pb-8 h-full overflow-y-auto">
-                <div className="grid grid-cols-2 gap-4">
+            {/* 顶部胶囊分段器：按图集 / 按角色 */}
+            <div className="px-5 pt-3 pb-2 shrink-0">
+                <div className="bg-black/5 dark:bg-white/10 p-1 rounded-2xl flex items-center">
+                    <button
+                        type="button"
+                        onClick={() => setTab("packs")}
+                        className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all border-none cursor-pointer ${
+                            tab === "packs" ? "bg-[var(--c-card)] text-[var(--c-text-title)] shadow-sm" : "bg-transparent text-[var(--c-text)] opacity-60"
+                        }`}
+                    >
+                        按图集
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setTab("characters")}
+                        className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all border-none cursor-pointer ${
+                            tab === "characters" ? "bg-[var(--c-card)] text-[var(--c-text-title)] shadow-sm" : "bg-transparent text-[var(--c-text)] opacity-60"
+                        }`}
+                    >
+                        按角色
+                    </button>
+                </div>
+            </div>
+
+            <div className="px-5 pt-2 pb-16 h-full overflow-y-auto">
+                {tab === "characters" ? (
+                    /* 图二：按角色列表与多图集批量绑定 */
+                    <div className="flex flex-col gap-2.5">
+                        {characters.map(c => {
+                            const assignedCount = packs.filter(p => getPackAssignments(p.id).includes(c.id)).length;
+                            return (
+                                <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => setManagingChar(c)}
+                                    className="w-full bg-[var(--c-card)] rounded-[20px] p-3.5 flex items-center justify-between border-none cursor-pointer active:scale-[0.98] transition-transform text-left"
+                                    style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className="w-11 h-11 rounded-full overflow-hidden bg-black/5 shrink-0 border border-[var(--c-card-border)]/40">
+                                            {c.avatar ? (
+                                                <img src={c.avatar} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center font-bold text-xs">{c.name[0]}</div>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col gap-0.5 min-w-0">
+                                            <span className="text-sm font-bold text-[var(--c-text-title)] truncate">{c.name}</span>
+                                            <span className="text-xs text-[var(--c-text)] opacity-60">已绑定 {assignedCount} 个图集</span>
+                                        </div>
+                                    </div>
+                                    <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50 shrink-0" />
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-4">
                     {packs.map((pack, i) => {
                         const assignedIds = getPackAssignments(pack.id);
                         const assignedNames = characters.filter(c => assignedIds.includes(c.id)).map(c => c.name);
@@ -125,6 +185,7 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
                         <span className="ts-14 font-medium text-[var(--c-text)]">新建图集</span>
                     </button>
                 </div>
+                )}
             </div>
 
             {showCreateDialog && createPortal(
@@ -149,6 +210,70 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
                     onConfirm={handleConfirmDeletePack}
                     onCancel={() => setDeletingPackId(null)}
                 />,
+                document.querySelector(".phone-shell") ?? document.body
+            )}
+
+            {/* 给某个角色多选安上表情包弹窗（图二专属交互） */}
+            {managingChar && createPortal(
+                <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-sm bg-[var(--c-card)] rounded-[26px] p-5 shadow-2xl flex flex-col gap-4 border border-[var(--c-card-border)] animate-scale-in max-h-[80vh]">
+                        <div className="flex items-center justify-between">
+                            <div className="flex flex-col gap-0.5">
+                                <h3 className="text-base font-bold text-[var(--c-text-title)] m-0">管理表情包图集</h3>
+                                <p className="text-xs text-[var(--c-text)] opacity-60 m-0">
+                                    为 {managingChar.name} 勾选绑定的表情包
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setManagingChar(null)}
+                                className="w-7 h-7 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center text-xs font-bold border-none cursor-pointer"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto flex flex-col gap-2 py-1 flex-1">
+                            {packs.length === 0 ? (
+                                <span className="text-xs text-center opacity-50 py-6">暂无可用表情包图集</span>
+                            ) : (
+                                packs.map(pack => {
+                                    const isAssigned = getPackAssignments(pack.id).includes(managingChar.id);
+                                    return (
+                                        <div
+                                            key={pack.id}
+                                            onClick={() => {
+                                                togglePackAssignment(pack.id, managingChar.id);
+                                                refresh();
+                                            }}
+                                            className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border ${
+                                                isAssigned ? "bg-[var(--c-icon-active)]/10 border-[var(--c-icon-active)]" : "bg-black/5 dark:bg-white/5 border-transparent"
+                                            }`}
+                                        >
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-xs font-bold text-[var(--c-text-title)]">{pack.name}</span>
+                                                <span className="text-[11px] text-[var(--c-text)] opacity-60">{pack.stickers.length} 个表情</span>
+                                            </div>
+                                            <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition-colors ${
+                                                isAssigned ? "bg-[var(--c-icon-active)] border-[var(--c-icon-active)] text-white" : "border-[var(--c-text)]/30"
+                                            }`}>
+                                                {isAssigned && <Check size={12} strokeWidth={3} />}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setManagingChar(null)}
+                            className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-[var(--c-icon-active)] border-none cursor-pointer active:scale-98 transition-transform"
+                        >
+                            完成
+                        </button>
+                    </div>
+                </div>,
                 document.querySelector(".phone-shell") ?? document.body
             )}
         </PageShell>

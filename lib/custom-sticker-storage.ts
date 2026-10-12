@@ -254,6 +254,30 @@ export function togglePackAssignment(packId: string, characterId: string): void 
     writeAssignments(map);
 }
 
+/** 批量设置表情包绑定的角色列表（覆盖或追加） */
+export function setPackAssignments(packId: string, characterIds: string[]): void {
+    const map = readAssignments();
+    map[packId] = Array.from(new Set(characterIds.filter(Boolean)));
+    writeAssignments(map);
+}
+
+/** 批量给多个表情包分配/移除某角色 */
+export function batchAssignPacksToCharacter(packIds: string[], characterId: string, assign: boolean): void {
+    if (!characterId || packIds.length === 0) return;
+    const map = readAssignments();
+    const packSet = new Set(packIds);
+    for (const pid of packSet) {
+        const list = map[pid] ?? [];
+        const exists = list.includes(characterId);
+        if (assign && !exists) {
+            map[pid] = [...list, characterId];
+        } else if (!assign && exists) {
+            map[pid] = list.filter(id => id !== characterId);
+        }
+    }
+    writeAssignments(map);
+}
+
 /** Get all pack IDs assigned to a character. */
 export function getCharacterPackIds(characterId: string): string[] {
     const map = readAssignments();

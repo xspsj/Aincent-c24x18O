@@ -204,6 +204,24 @@ const RICH_PATTERNS: {
         }),
     },
     {
+        // [换头像:描述] 或 [换头像:图片URL:描述] — 角色主动换上网络头像
+        regex: new RegExp(`\\[换头像${C}(?:([^\\]：:]+)[：:])?([^\\]]+)\\]`),
+        build: (m) => {
+            const maybeUrl = m[1]?.trim() || "";
+            const desc = m[2]?.trim() || "";
+            return {
+                content: "",
+                mediaType: "tool_notice" as const,
+                mediaData: {
+                    label: `换上了新头像：${desc}`,
+                    customActionType: "change_avatar",
+                    avatarUrl: maybeUrl,
+                    avatarDesc: desc,
+                },
+            };
+        },
+    },
+    {
         regex: new RegExp(`\\[表情包${C}([^\\]]+)\\]`),
         build: (m) => {
             const name = m[1].trim();
