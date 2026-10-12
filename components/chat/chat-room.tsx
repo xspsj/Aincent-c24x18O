@@ -75,6 +75,7 @@ import {
 } from "@/lib/generated-image-retry";
 import { scrollElementWithinContainer } from "@/lib/dom-scroll";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
+import { addCharacterChatAvatar, getCharacterChatAvatars } from "@/lib/chat-avatar-storage";
 import { ChatScreenEffectOverlay, type ActiveScreenEffect } from "./chat-screen-effect";
 import {
     formatChatDiceResultMessage,
@@ -2840,6 +2841,29 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
+        // 角色自然对白换头像兼容兜底（口头配合）：
+        if (session.contactId && !session.isGroup) {
+            const hasSpokenChangeAvatar = rawParts.some(p => !p.mediaType && /(?:换好了|换上啦|换上去了|换了|换个头像|这就换)/.test(p.content));
+            if (hasSpokenChangeAvatar) {
+                const freshMsgs = loadChatMessages(session.id);
+                const lastUserMessages = [...freshMsgs].reverse().slice(0, 5);
+                const userRecentlyAsked = lastUserMessages.some(m => m.role === "user" && /(?:换这个头像|换头像|换上这个|用这个做头像|换情头|情头|换这个)/.test(m.content));
+                const lastUserImg = lastUserMessages.find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+                if (userRecentlyAsked && lastUserImg?.mediaUrl) {
+                    const avatarUrl = lastUserImg.mediaUrl;
+                    const avatarDesc = lastUserImg.mediaData?.label || "你送我的情头";
+                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
+                    saveChatSessions(nextSessions);
+                    session.customCharAvatar = avatarUrl;
+                    session.customCharAvatarDesc = avatarDesc;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                }
+            }
+        }
+
         for (const p of parts) {
             throwIfGenerationStopped(options);
             if (p.mediaType === "voice_call") { triggerCall = "voice"; continue; }
@@ -2874,6 +2898,33 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     mediaType: "poke",
                     mediaData: { pokeSender, pokeTarget },
                 });
+                continue;
+            }
+            // 角色换头像动作支持：[换头像:描述]
+            if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "change_avatar") {
+                const avatarDesc = p.mediaData?.avatarDesc || "新头像";
+                let avatarUrl = p.mediaData?.avatarUrl || "";
+                if (!avatarUrl && session.contactId) {
+                    const vault = getCharacterChatAvatars(session.contactId);
+                    const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
+                    if (matched) {
+                        avatarUrl = matched.url;
+                    } else {
+                        const freshMsgs = loadChatMessages(session.id);
+                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+                        if (lastUserImg?.mediaUrl) avatarUrl = lastUserImg.mediaUrl;
+                    }
+                }
+                if (avatarUrl && session.contactId) {
+                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
+                    saveChatSessions(nextSessions);
+                    session.customCharAvatar = avatarUrl;
+                    session.customCharAvatarDesc = avatarDesc;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                }
                 continue;
             }
             pushFilteredPart(p);
@@ -6011,11 +6062,14 @@ function formatCallDurationDisplay(durationStr: string): string {
                                                             : character;
                                                         if (targetChar) sendRichMessage("poke", { pokeTarget: targetChar.name });
                                                     }} className="w-[40px] h-[40px] rounded-[20px] bg-[var(--c-input)] overflow-hidden cursor-pointer">
-                                                        {senderChar?.avatar ? (
-                                                            <img src={senderChar.avatar} className="w-full h-full object-cover" alt="" />
-                                                        ) : (
-                                                            <ChatFallbackAvatar />
-                                                        )}
+                                                        {(() => {
+                                                            const displayAvatar = (!session.isGroup && session.customCharAvatar) ? session.customCharAvatar : senderChar?.avatar;
+                                                            return displayAvatar ? (
+                                                                <img src={displayAvatar} className="w-full h-full object-cover" alt="" />
+                                                            ) : (
+                                                                <ChatFallbackAvatar />
+                                                            );
+                                                        })()}
                                                     </div>
                                                             </>
                                                         );
