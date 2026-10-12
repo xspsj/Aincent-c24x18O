@@ -20,6 +20,7 @@ import {
     removeStickerFromPack,
     getPackAssignments,
     togglePackAssignment,
+    batchAssignPacksToCharacter,
     resolvePackStickerMap,
     getCharacterPackIds,
     type StickerItem,
@@ -36,6 +37,12 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
     const [editingPack, setEditingPack] = useState<StickerPack | null>(null);
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [deletingPackId, setDeletingPackId] = useState<string | null>(null);
+
+    // 多选批量操作与角色过滤
+    const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+    const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
+    const [characterFilter, setCharacterFilter] = useState<string>("all"); // "all" | characterId
+    const [showBatchAssignModal, setShowBatchAssignModal] = useState(false);
 
     const refresh = () => setPacks(loadStickerPacks());
     useEffect(() => { refresh(); }, []);
@@ -56,13 +63,122 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
         );
     }
 
+    // 根据角色过滤
+    const filteredPacks = useMemo(() => {
+        if (characterFilter === "all") return packs;
+        return packs.filter(p => {
+            const assigned = getPackAssignments(p.id);
+            return assigned.includes(characterFilter);
+        });
+    }, [packs, characterFilter]);
+
+    const handleToggleSelectPack = (packId: string) => {
+        setSelectedPackIds(prev => 
+            prev.includes(packId) ? prev.filter(id => id !== packId) : [...prev, packId]
+        );
+    };
+
+    const handleSelectAll = () => {
+        if (selectedPackIds.length === filteredPacks.length) {
+            setSelectedPackIds([]);
+        } else {
+            setSelectedPackIds(filteredPacks.map(p => p.id));
+        }
+    };
+
+    const handleBatchAssignConfirm = (charId: string, assign: boolean) => {
+        batchAssignPacksToCharacter(selectedPackIds, charId, assign);
+        setShowBatchAssignModal(false);
+        setIsMultiSelectMode(false);
+        setSelectedPackIds([]);
+        refresh();
+    };
+
     return (
-        <PageShell title="表情包管理" onBack={onBack} className="absolute inset-0 z-[100]">
-            <div className="px-5 pt-4 pb-8 h-full overflow-y-auto">
-                <div className="grid grid-cols-2 gap-4">
-                    {packs.map((pack, i) => {
+        <PageShell
+            title="表情包管理"
+            onBack={onBack}
+            rightAction={
+                <button
+                    type="button"
+                    onClick={() => {
+                        if (isMultiSelectMode) {
+                            setIsMultiSelectMode(false);
+                            setSelectedPackIds([]);
+                        } else {
+                            setIsMultiSelectMode(true);
+                        }
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-95 bg-transparent border-none cursor-pointer"
+                    style={{
+                        color: isMultiSelectMode ? "var(--c-icon-active)" : "var(--c-text)",
+                        background: isMultiSelectMode ? "color-mix(in srgb, var(--c-icon-active) 12%, transparent)" : "transparent"
+                    }}
+                >
+                    {isMultiSelectMode ? "取消多选" : "多选"}
+                </button>
+            }
+            className="absolute inset-0 z-[100]"
+        >
+            <div className="flex flex-col h-full overflow-hidden">
+                {/* 角色快捷切换过滤栏 */}
+                {characters.length > 0 && (
+                    <div className="px-5 pt-3 pb-2 flex items-center gap-2 overflow-x-auto shrink-0 no-scrollbar">
+                        <button
+                            type="button"
+                            onClick={() => setCharacterFilter("all")}
+                            className="ui-chip text-xs px-3 py-1 shrink-0"
+                            {...(characterFilter === "all" ? { "data-selected": "" } : {})}
+                        >
+                            全部表情包 ({packs.length})
+                        </button>
+                        {characters.map(c => {
+                            const count = packs.filter(p => getPackAssignments(p.id).includes(c.id)).length;
+                            return (
+                                <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => setCharacterFilter(c.id)}
+                                    className="ui-chip text-xs px-3 py-1 shrink-0"
+                                    {...(characterFilter === c.id ? { "data-selected": "" } : {})}
+                                >
+                                    {c.name} ({count})
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* 多选状态下的操作条 */}
+                {isMultiSelectMode && (
+                    <div className="px-5 py-2.5 bg-[var(--c-card)] border-b border-[var(--c-card-border)]/40 flex items-center justify-between shrink-0 animate-fade-in">
+                        <button
+                            type="button"
+                            onClick={handleSelectAll}
+                            className="text-xs font-medium text-[var(--c-icon-active)] cursor-pointer bg-transparent border-none p-0"
+                        >
+                            {selectedPackIds.length === filteredPacks.length ? "取消全选" : "全选本页"}
+                        </button>
+                        <span className="text-xs text-[var(--c-text)] opacity-70">
+                            已选 {selectedPackIds.length} 个
+                        </span>
+                        <button
+                            type="button"
+                            disabled={selectedPackIds.length === 0}
+                            onClick={() => setShowBatchAssignModal(true)}
+                            className="px-3 py-1 rounded-full text-xs font-semibold text-white bg-[var(--c-icon-active)] disabled:opacity-40 transition-all active:scale-95 border-none cursor-pointer shadow-sm"
+                        >
+                            分配给角色
+                        </button>
+                    </div>
+                )}
+
+                <div className="px-5 pt-3 pb-24 flex-1 overflow-y-auto">
+                    <div className="grid grid-cols-2 gap-4">
+                    {filteredPacks.map((pack, i) => {
                         const assignedIds = getPackAssignments(pack.id);
                         const assignedNames = characters.filter(c => assignedIds.includes(c.id)).map(c => c.name);
+                        const isSelected = selectedPackIds.includes(pack.id);
                         
                         // Pick a dynamic gradient based on index so the grid looks vibrant
                         const gradients = [
@@ -77,10 +193,30 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
                         return (
                         <div key={pack.id} className="relative group">
                             <button
-                                onClick={() => setEditingPack(pack)}
-                                className="w-full bg-[var(--c-card)] rounded-[22px] p-4 pb-5 flex flex-col items-start gap-4 cursor-pointer text-left transition-transform duration-200 active:scale-[0.96] border-none"
+                                onClick={() => {
+                                    if (isMultiSelectMode) {
+                                        handleToggleSelectPack(pack.id);
+                                    } else {
+                                        setEditingPack(pack);
+                                    }
+                                }}
+                                className={`w-full bg-[var(--c-card)] rounded-[22px] p-4 pb-5 flex flex-col items-start gap-4 cursor-pointer text-left transition-all duration-200 active:scale-[0.96] border-2 ${
+                                    isSelected ? "border-[var(--c-icon-active)] shadow-md" : "border-transparent"
+                                }`}
                                 style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025), inset 0 1px 0 rgba(255,255,255,0.4)" }}
                             >
+                                <div className="flex items-center justify-between w-full">
+                                    <div className={`w-[48px] h-[48px] rounded-2xl bg-gradient-to-br ${bgGrad} flex items-center justify-center shrink-0 shadow-inner`}>
+                                        <Sticker size={24} className={textColor} />
+                                    </div>
+                                    {isMultiSelectMode && (
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition-colors ${
+                                            isSelected ? "bg-[var(--c-icon-active)] border-[var(--c-icon-active)] text-white" : "border-[var(--c-text)]/30"
+                                        }`}>
+                                            {isSelected && <Check size={12} strokeWidth={3} />}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className={`w-[48px] h-[48px] rounded-2xl bg-gradient-to-br ${bgGrad} flex items-center justify-center shrink-0 shadow-inner`}>
                                     <Sticker size={24} className={textColor} />
                                 </div>
@@ -149,6 +285,53 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
                     onConfirm={handleConfirmDeletePack}
                     onCancel={() => setDeletingPackId(null)}
                 />,
+                document.querySelector(".phone-shell") ?? document.body
+            )}
+
+            {/* 批量分配给角色弹窗 */}
+            {showBatchAssignModal && createPortal(
+                <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-sm bg-[var(--c-card)] rounded-[24px] p-5 shadow-2xl flex flex-col gap-4 border border-[var(--c-card-border)] animate-scale-in">
+                        <div className="flex flex-col gap-1">
+                            <h3 className="text-base font-bold text-[var(--c-text-title)] m-0">批量分配给角色</h3>
+                            <p className="text-xs text-[var(--c-text)] opacity-60 m-0">
+                                已选 {selectedPackIds.length} 个表情包，选择要绑定的角色：
+                            </p>
+                        </div>
+
+                        <div className="max-h-60 overflow-y-auto flex flex-col gap-2 py-1">
+                            {characters.map(c => (
+                                <div key={c.id} className="flex items-center justify-between p-2 rounded-xl bg-black/5 dark:bg-white/5">
+                                    <span className="text-xs font-semibold text-[var(--c-text)] truncate">{c.name}</span>
+                                    <div className="flex gap-1.5 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleBatchAssignConfirm(c.id, true)}
+                                            className="px-2.5 py-1 rounded-lg text-xs font-medium text-white bg-[var(--c-icon-active)] border-none cursor-pointer active:scale-95 transition-transform"
+                                        >
+                                            绑定添加
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleBatchAssignConfirm(c.id, false)}
+                                            className="px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--c-text)] bg-black/10 dark:bg-white/10 border-none cursor-pointer active:scale-95 transition-transform"
+                                        >
+                                            移除
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setShowBatchAssignModal(false)}
+                            className="w-full py-2 rounded-xl text-xs font-semibold text-[var(--c-text)] bg-black/5 dark:bg-white/5 border-none cursor-pointer active:scale-98 transition-transform"
+                        >
+                            取消
+                        </button>
+                    </div>
+                </div>,
                 document.querySelector(".phone-shell") ?? document.body
             )}
         </PageShell>

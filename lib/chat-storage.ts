@@ -77,6 +77,10 @@ export type ChatSession = {
     groupMutes?: Record<string, string>; // (characterId | "self") → mute expiry ISO
     allowAdminActionsOnUser?: boolean; // characters may kick/mute the user (default off)
     isSpectator?: boolean; // 围观群：用户不在群内，只能生成/线下
+    // 聊天专属网络头像与装扮（仅在当前聊天App内展示，不修改角色卡与用户全局默认资料）
+    customCharAvatar?: string;       // 角色当前在聊天中使用的网络头像 URL 或 base64
+    customCharAvatarDesc?: string;   // 角色当前头像的描述（注入 Prompt，让角色知道自己换上了什么）
+    customUserAvatar?: string;       // 用户在该聊天中的独立网络头像
 };
 
 export type ChatMessageStatus = "sending" | "sent" | "read" | "failed";
