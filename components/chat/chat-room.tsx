@@ -75,6 +75,7 @@ import {
 } from "@/lib/generated-image-retry";
 import { scrollElementWithinContainer } from "@/lib/dom-scroll";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
+import { addCharacterChatAvatar, getCharacterChatAvatars } from "@/lib/chat-avatar-storage";
 import { ChatScreenEffectOverlay, type ActiveScreenEffect } from "./chat-screen-effect";
 import {
     formatChatDiceResultMessage,
@@ -97,11 +98,11 @@ function isCallSysMsg(msg: ChatMessage): boolean {
     return CALL_SYS_RE.test(msg.content);
 }
 /** Returns the effective UI role: call messages render as "system" regardless of stored role */
-const ACTION_MEDIA_TYPES = new Set(["poke", "accept_red_packet", "decline_red_packet", "accept_transfer", "decline_transfer", "accept_payment_request", "decline_payment_request", "group_admin_notice"]);
+const ACTION_MEDIA_TYPES = new Set(["poke", "accept_red_packet", "decline_red_packet", "accept_transfer", "decline_transfer", "accept_payment_request", "decline_payment_request", "group_admin_notice", "tool_notice"]);
 // 拍一拍/群管理通知/通话留痕渲染成灰色系统小字，没有 💭 面板入口——
 // 状态栏/内心独白/状态值挂上去会被显示层吞掉，挂载时必须跳过它们
 function canCarryFoldedPanel(part: { content?: string; mediaType?: ChatMessage["mediaType"] }): boolean {
-    if (part.mediaType === "poke" || part.mediaType === "group_admin_notice") return false;
+    if (part.mediaType === "poke" || part.mediaType === "group_admin_notice" || part.mediaType === "tool_notice") return false;
     return !CALL_SYS_RE.test(part.content || "");
 }
 function uiRole(msg: ChatMessage): string {
@@ -2535,6 +2536,34 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     });
                     continue;
                 }
+                // 群聊角色换头像
+                if (part.mediaType === "tool_notice" && part.mediaData?.customActionType === "change_avatar") {
+                    const avatarDesc = part.mediaData?.avatarDesc || "";
+                    let avatarUrl = part.mediaData?.avatarUrl || "";
+                    if (!avatarUrl && r.characterId) {
+                        const vault = getCharacterChatAvatars(r.characterId);
+                        const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
+                        if (matched) avatarUrl = matched.url;
+                    }
+                    if (avatarUrl && r.characterId) {
+                        addCharacterChatAvatar(r.characterId, avatarUrl, avatarDesc || `${r.characterName}的新头像`, "user_sent");
+                    }
+                    const msg = pushChatMessage({
+                        sessionId: session.id, role: "assistant",
+                        content: `${r.characterName}换上了新头像${avatarDesc ? `：${avatarDesc}` : ""}`,
+                        mediaType: "tool_notice",
+                        mediaData: part.mediaData,
+                        responseBatchId,
+                        rawResponseText: r.responseText,
+                        responseRoundId,
+                        editableResponseText,
+                        senderCharacterId: r.characterId,
+                        senderName: r.characterName,
+                    });
+                    savedAnyPart = true;
+                    msgsSetter(prev => [...prev, msg]);
+                    continue;
+                }
                 if (!isFirst && !revealOptions?.instantReveal) await abortableDelay(800, guard?.signal);
                 throwIfGenerationStopped(guard);
                 isFirst = false;
@@ -2873,6 +2902,41 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     content: `${pokeSender} 拍了拍 ${pokeTarget}`,
                     mediaType: "poke",
                     mediaData: { pokeSender, pokeTarget },
+                });
+                continue;
+            }
+            // 角色主动换头像动作：[换头像:描述] 或 [换头像:图片URL:描述]
+            if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "change_avatar") {
+                const avatarDesc = p.mediaData?.avatarDesc || "";
+                let avatarUrl = p.mediaData?.avatarUrl || "";
+                // 如果没有提供 URL，尝试从角色的网络头像库里按描述匹配，或者从上一条用户发的图片消息里取
+                if (!avatarUrl && session.contactId) {
+                    const vault = getCharacterChatAvatars(session.contactId);
+                    const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
+                    if (matched) {
+                        avatarUrl = matched.url;
+                    } else {
+                        // 回溯最近一条用户发的图片消息
+                        const freshMsgs = loadChatMessages(session.id);
+                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || m.mediaType === "media_file" && m.mediaData?.fileType === "image"));
+                        if (lastUserImg?.mediaUrl) {
+                            avatarUrl = lastUserImg.mediaUrl;
+                        }
+                    }
+                }
+                if (avatarUrl && session.contactId) {
+                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc || `${charN}的新头像`, "user_sent");
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
+                    saveChatSessions(nextSessions);
+                    session.customCharAvatar = avatarUrl;
+                    session.customCharAvatarDesc = avatarDesc;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                }
+                pushFilteredPart({
+                    content: `${charN}换上了新头像${avatarDesc ? `：${avatarDesc}` : ""}`,
+                    mediaType: "tool_notice",
+                    mediaData: p.mediaData,
                 });
                 continue;
             }
@@ -6011,11 +6075,14 @@ function formatCallDurationDisplay(durationStr: string): string {
                                                             : character;
                                                         if (targetChar) sendRichMessage("poke", { pokeTarget: targetChar.name });
                                                     }} className="w-[40px] h-[40px] rounded-[20px] bg-[var(--c-input)] overflow-hidden cursor-pointer">
-                                                        {senderChar?.avatar ? (
-                                                            <img src={senderChar.avatar} className="w-full h-full object-cover" alt="" />
-                                                        ) : (
-                                                            <ChatFallbackAvatar />
-                                                        )}
+                                                        {(() => {
+                                                            const displayAvatar = (!session.isGroup && session.customCharAvatar) ? session.customCharAvatar : senderChar?.avatar;
+                                                            return displayAvatar ? (
+                                                                <img src={displayAvatar} className="w-full h-full object-cover" alt="" />
+                                                            ) : (
+                                                                <ChatFallbackAvatar />
+                                                            );
+                                                        })()}
                                                     </div>
                                                             </>
                                                         );
