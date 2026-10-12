@@ -189,8 +189,6 @@ export function StickerManager({ onBack }: { onBack: () => void }) {
             </div>
 
             {showCreateDialog && createPortal(
-
-            {showCreateDialog && createPortal(
                 <CreatePackDialog
                     characters={characters}
                     onConfirm={(pack) => {
