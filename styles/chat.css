@@ -738,6 +738,77 @@
   height: 24px;
 }
 
+/* ── 加号工具箱菜单面板：固定露出3行防撑爆 ── */
+.chat-plus-menu-container {
+  position: relative;
+  width: 100%;
+  margin-top: 10px;
+  padding-bottom: 6px;
+}
+
+/* 纵向滚动模式：严格限制展示 3 行高度，带平滑惯性上下滚动 */
+.chat-plus-menu-vertical {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px 8px;
+  max-height: 258px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 2px;
+}
+
+/* 左右横滑模式：Scroll Snap 微信同款分页，每页固定 3 行 × 4 列 (12 项) */
+.chat-plus-menu-paged-viewport {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  width: 100%;
+}
+.chat-plus-menu-paged-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-plus-menu-page {
+  flex: 0 0 100%;
+  min-width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, auto);
+  gap: 14px 8px;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  padding: 4px 2px;
+  box-sizing: border-box;
+}
+
+/* 微信同款底部居中分页小圆点 */
+.chat-plus-menu-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-bottom: 4px;
+}
+
+.chat-plus-menu-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: var(--c-text);
+  opacity: 0.25;
+  transition: all 0.25s ease;
+}
+
+.chat-plus-menu-dot.active {
+  opacity: 0.9;
+  width: 14px;
+  border-radius: 9999px;
+}
+
 .chat-offline-toggle {
   position: relative;
 }

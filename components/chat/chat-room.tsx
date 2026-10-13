@@ -608,6 +608,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGenerating: boolean;
     theaterMode: boolean;
     enterToSendEnabled: boolean;
+    plusMenuLayoutStyle?: "vertical" | "paged";
     quotingMessage: ChatMessage | null;
     showEmojiPanel: boolean;
     showStickerPanel: boolean;
@@ -639,6 +640,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGenerating,
     theaterMode,
     enterToSendEnabled,
+    plusMenuLayoutStyle,
     quotingMessage,
     showEmojiPanel,
     showStickerPanel,
@@ -882,16 +884,44 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             </div>
 
             {showPlusMenu && (
-                <div className="chat-plus-menu">
-                    {plusMenuItems.map((item, i) => (
-                        <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
-                            <div className="chat-plus-icon-box">
-                                {item.icon}
-                            </div>
-                            <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                plusMenuLayoutStyle === "paged" ? (
+                    <div className="chat-plus-menu-container">
+                        <div className="chat-plus-menu-paged-viewport">
+                            {Array.from({ length: Math.ceil(plusMenuItems.length / 12) }).map((_, pageIdx) => (
+                                <div key={pageIdx} className="chat-plus-menu-page">
+                                    {plusMenuItems.slice(pageIdx * 12, (pageIdx + 1) * 12).map((item, i) => (
+                                        <div key={`${item.label}-${pageIdx}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
+                                            <div className="chat-plus-icon-box">
+                                                {item.icon}
+                                            </div>
+                                            <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
                         </div>
-                    ))}
-                </div>
+                        {Math.ceil(plusMenuItems.length / 12) > 1 && (
+                            <div className="chat-plus-menu-dots">
+                                {Array.from({ length: Math.ceil(plusMenuItems.length / 12) }).map((_, dotIdx) => (
+                                    <span key={dotIdx} className={`chat-plus-menu-dot ${dotIdx === 0 ? "active" : ""}`} />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="chat-plus-menu-container">
+                        <div className="chat-plus-menu-vertical">
+                            {plusMenuItems.map((item, i) => (
+                                <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
+                                    <div className="chat-plus-icon-box">
+                                        {item.icon}
+                                    </div>
+                                    <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )
             )}
             {showPlusMenu && (
                 <ChatPluginSlot name="chat.inputToolbar" slotProps={{ isGroup }} className="chat-plugin-input-toolbar" />
@@ -1129,6 +1159,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [callInitiatorName, setCallInitiatorName] = useState<string>("");
     const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(() => loadChatAppSettings().enterToSendEnabled === true);
+    const [plusMenuLayoutStyle, setPlusMenuLayoutStyle] = useState<"vertical" | "paged">(() => loadChatAppSettings().plusMenuLayoutStyle || "vertical");
 
     // Rich media input modals
     const [richModal, setRichModal] = useState<RichModalKind | null>(null);
@@ -1145,7 +1176,9 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
     useEffect(() => {
         const syncEnterToSend = () => {
-            setEnterToSendEnabled(loadChatAppSettings().enterToSendEnabled === true);
+            const settings = loadChatAppSettings();
+            setEnterToSendEnabled(settings.enterToSendEnabled === true);
+            setPlusMenuLayoutStyle(settings.plusMenuLayoutStyle || "vertical");
         };
         window.addEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncEnterToSend);
         return () => window.removeEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncEnterToSend);
@@ -6329,6 +6362,7 @@ function formatCallDurationDisplay(durationStr: string): string {
 	                theaterMode={theaterMode}
 	                enterToSendEnabled={enterToSendEnabled}
 	                quotingMessage={quotingMessage}
+                plusMenuLayoutStyle={plusMenuLayoutStyle}
                 showEmojiPanel={showEmojiPanel}
                 showStickerPanel={showStickerPanel}
                 showPlusMenu={showPlusMenu}

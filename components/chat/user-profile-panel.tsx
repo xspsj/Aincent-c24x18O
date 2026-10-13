@@ -166,6 +166,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
+    const [appearanceThemeMode, setAppearanceThemeMode] = useState<"system" | "light" | "dark">("system");
+    const [plusMenuLayoutStyle, setPlusMenuLayoutStyle] = useState<"vertical" | "paged">("vertical");
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
     const [walletSummary, setWalletSummary] = useState(() => {
         const wallet = loadWalletState();
@@ -182,6 +184,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
+        setAppearanceThemeMode(settings.appearanceThemeMode || "system");
+        setPlusMenuLayoutStyle(settings.plusMenuLayoutStyle || "vertical");
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
             setNotifHint(readBrowserNotificationPermissionHint());
         }
@@ -214,6 +218,36 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         window.addEventListener(WALLET_UPDATED_EVENT, syncWallet);
         return () => window.removeEventListener(WALLET_UPDATED_EVENT, syncWallet);
     }, []);
+
+    const handleThemeModeChange = (mode: "system" | "light" | "dark") => {
+        setAppearanceThemeMode(mode);
+        const current = loadChatAppSettings();
+        saveChatAppSettings({ ...current, appearanceThemeMode: mode });
+        if (typeof document !== "undefined") {
+            const root = document.documentElement;
+            if (mode === "dark") {
+                root.classList.add("dark");
+                root.setAttribute("data-theme", "dark");
+            } else if (mode === "light") {
+                root.classList.remove("dark");
+                root.setAttribute("data-theme", "light");
+            } else {
+                root.removeAttribute("data-theme");
+                if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+                    root.classList.add("dark");
+                } else {
+                    root.classList.remove("dark");
+                }
+            }
+        }
+    };
+
+    const handlePlusMenuLayoutToggle = (enabled: boolean) => {
+        const mode = enabled ? "paged" : "vertical";
+        setPlusMenuLayoutStyle(mode);
+        const current = loadChatAppSettings();
+        saveChatAppSettings({ ...current, plusMenuLayoutStyle: mode });
+    };
 
     const handleNotificationToggle = async (enabled: boolean) => {
         if (notifChecking) return;
@@ -437,6 +471,53 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </button>
                     </div>
 
+                    {/* 外观模式（三胶囊） */}
+                    <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl p-4 flex flex-col gap-3"
+                         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Moon size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25} />
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">外观模式</span>
+                            </div>
+                            <span className="ts-11 text-[var(--c-text)] opacity-50">界面色彩主题偏好</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[color-mix(in_srgb,var(--c-card-border)_30%,transparent)]">
+                            <button
+                                type="button"
+                                className={`py-1.5 rounded-lg ts-12 font-semibold transition-all flex items-center justify-center gap-1 ${
+                                    appearanceThemeMode === "system"
+                                        ? "bg-[var(--c-card)] text-[var(--c-text-title)] shadow-sm"
+                                        : "text-[var(--c-text)] opacity-70 hover:opacity-100"
+                                }`}
+                                onClick={() => handleThemeModeChange("system")}
+                            >
+                                <span>🌓</span> 跟随系统
+                            </button>
+                            <button
+                                type="button"
+                                className={`py-1.5 rounded-lg ts-12 font-semibold transition-all flex items-center justify-center gap-1 ${
+                                    appearanceThemeMode === "light"
+                                        ? "bg-[var(--c-card)] text-[var(--c-text-title)] shadow-sm"
+                                        : "text-[var(--c-text)] opacity-70 hover:opacity-100"
+                                }`}
+                                onClick={() => handleThemeModeChange("light")}
+                            >
+                                <span>☀️</span> 浅色
+                            </button>
+                            <button
+                                type="button"
+                                className={`py-1.5 rounded-lg ts-12 font-semibold transition-all flex items-center justify-center gap-1 ${
+                                    appearanceThemeMode === "dark"
+                                        ? "bg-[var(--c-card)] text-[var(--c-text-title)] shadow-sm"
+                                        : "text-[var(--c-text)] opacity-70 hover:opacity-100"
+                                }`}
+                                onClick={() => handleThemeModeChange("dark")}
+                            >
+                                <span>🌙</span> 深色
+                            </button>
+                        </div>
+                    </div>
+
                     {/* 输入与提醒 */}
                     <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl px-4 py-1 flex flex-col"
                          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
@@ -447,6 +528,15 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">开启后 Enter 发送，Shift+Enter 换行</span>
                             </div>
                             <Toggle checked={enterToSendEnabled} onChange={handleEnterToSendToggle} />
+                        </div>
+
+                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                            <SlidersHorizontal size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">工具箱横向分页</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">开启后加号工具箱按3行12格左右滑动（微信同款）</span>
+                            </div>
+                            <Toggle checked={plusMenuLayoutStyle === "paged"} onChange={handlePlusMenuLayoutToggle} />
                         </div>
 
                         <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
