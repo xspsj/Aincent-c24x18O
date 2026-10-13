@@ -166,6 +166,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
+    const [appearanceThemeMode, setAppearanceThemeMode] = useState<"system" | "light" | "dark">("system");
+    const [plusMenuPaged, setPlusMenuPaged] = useState(false);
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
     const [walletSummary, setWalletSummary] = useState(() => {
         const wallet = loadWalletState();
@@ -182,6 +184,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
+        setAppearanceThemeMode(settings.appearanceThemeMode || "system");
+        setPlusMenuPaged(settings.plusMenuLayoutStyle === "paged");
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
             setNotifHint(readBrowserNotificationPermissionHint());
         }
@@ -252,6 +256,16 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const handleCallVibrationToggle = (enabled: boolean) => {
         setCallVibrationEnabled(enabled);
         saveChatAppSettings({ ...loadChatAppSettings(), callVibrationEnabled: enabled });
+    };
+
+    const handleAppearanceThemeChange = (mode: "system" | "light" | "dark") => {
+        setAppearanceThemeMode(mode);
+        saveChatAppSettings({ ...loadChatAppSettings(), appearanceThemeMode: mode });
+    };
+
+    const handlePlusMenuPagedToggle = (enabled: boolean) => {
+        setPlusMenuPaged(enabled);
+        saveChatAppSettings({ ...loadChatAppSettings(), plusMenuLayoutStyle: enabled ? "paged" : "vertical" });
     };
 
     if (showFollowUpEditor) {
@@ -437,6 +451,43 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </button>
                     </div>
 
+                    {/* 外观模式（三胶囊切换卡片） */}
+                    <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl p-4 flex flex-col gap-3"
+                         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
+                        <div className="flex items-center gap-3">
+                            <Moon size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25} />
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">外观模式</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">界面色彩风格与暗黑模式适配偏好</span>
+                            </div>
+                        </div>
+                        {/* 三胶囊分段条 */}
+                        <div className="grid grid-cols-3 p-1 rounded-xl bg-black/5 dark:bg-white/10 gap-1 text-center">
+                            {([
+                                { key: "system", label: "跟随系统", icon: "🌓" },
+                                { key: "light", label: "浅色", icon: "☀️" },
+                                { key: "dark", label: "深色", icon: "🌙" },
+                            ] as const).map(tab => {
+                                const active = appearanceThemeMode === tab.key;
+                                return (
+                                    <button
+                                        key={tab.key}
+                                        type="button"
+                                        onClick={() => handleAppearanceThemeChange(tab.key)}
+                                        className={`py-1.5 px-2 rounded-lg ts-12 font-medium flex items-center justify-center gap-1.5 transition-all ${
+                                            active
+                                                ? "bg-white dark:bg-black/40 text-[var(--c-text-title)] shadow-sm font-semibold"
+                                                : "text-[var(--c-text)] opacity-70 hover:opacity-100"
+                                        }`}
+                                    >
+                                        <span className="text-xs">{tab.icon}</span>
+                                        <span>{tab.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     {/* 输入与提醒 */}
                     <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl px-4 py-1 flex flex-col"
                          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
@@ -447,6 +498,15 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">开启后 Enter 发送，Shift+Enter 换行</span>
                             </div>
                             <Toggle checked={enterToSendEnabled} onChange={handleEnterToSendToggle} />
+                        </div>
+
+                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                            <SlidersHorizontal size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">工具箱横向分页</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">开启后按 3 行 12 格左右横滑（微信同款），关闭为上下滚动</span>
+                            </div>
+                            <Toggle checked={plusMenuPaged} onChange={handlePlusMenuPagedToggle} />
                         </div>
 
                         <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
