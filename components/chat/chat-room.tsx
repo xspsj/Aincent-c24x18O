@@ -629,12 +629,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     onStopGeneration: () => void;
     onTriggerAIResponse: () => void;
 	onSendSticker: (name: string, url?: string) => void;
-    wechatMode?: boolean;
-    pagedPlusMenu?: boolean;
 }>(function ChatTextInputBar({
     characterName,
-    wechatMode = false,
-    pagedPlusMenu = false,
     characterId,
     stickerCharacterIds,
     isGroup,
@@ -678,8 +674,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     }, [muteUntilMs]);
     const muteRemainingMs = muteUntilMs > muteNowTick ? muteUntilMs - muteNowTick : 0;
     const inputLocked = isSpectator || muteRemainingMs > 0;
-    const [showWechatVoiceMenu, setShowWechatVoiceMenu] = useState(false);
-    const [activePlusPage, setActivePlusPage] = useState(0);
 
     const resetTextareaHeight = () => {
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -807,7 +801,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         </div>
                     )}
 
-                    {/* 左一：微信官方语音发声波（严格1:1还原图六：外圈 + 偏左下实心三角 + 朝右上方45°舒展发射的两道粗弧圆弧） */}
+                    {/* 左一：发声波图标（基于你的粉色水平基准线：完全水平、完全关于中轴线对称） */}
                     <button
                         type="button"
                         onClick={() => setShowWechatVoiceMenu(!showWechatVoiceMenu)}
@@ -815,17 +809,17 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         aria-label="收纳菜单"
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
-                            {/* 偏左下方小三角发声点 */}
-                            <path d="M9 16.5L12.5 12.5L14 16L9 16.5Z" fill="#111111" />
-                            {/* 朝右上方45°扩散的第一道粗圆弧 */}
-                            <path d="M14.5 12.8C15.8 13.5 16.8 14.8 17 16.5" stroke="#111111" strokeWidth="2.2" strokeLinecap="round" />
-                            {/* 朝右上方45°扩散的第二道粗圆弧 */}
-                            <path d="M17 9.8C19.2 11 20.6 13.2 21 16" stroke="#111111" strokeWidth="2.2" strokeLinecap="round" />
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
+                            {/* 偏左、完全居中对称的小三角 */}
+                            <path d="M8.5 14L11.5 11.5V16.5L8.5 14Z" fill="#111111" />
+                            {/* 第一道水平向右扩散的对称同心弧 */}
+                            <path d="M14 11C15.2 11.8 16 12.8 16 14C16 15.2 15.2 16.2 14 17" stroke="#111111" strokeWidth="1.8" strokeLinecap="round" />
+                            {/* 第二道水平向右扩散的对称同心弧 */}
+                            <path d="M16.8 9C18.8 10.3 20 12 20 14C20 16 18.8 17.7 16.8 19" stroke="#111111" strokeWidth="1.8" strokeLinecap="round" />
                         </svg>
                     </button>
 
-                    {/* 中间：纯净单一圆角输入框 + 内嵌麦克风装饰（打字时平滑渐隐） */}
+                    {/* 中间：纯净单一圆角输入框 + 内嵌麦克风装饰 */}
                     <div className="chat-wechat-input-box">
                         <textarea
                             ref={textareaRef}
@@ -877,7 +871,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         </div>
                     </div>
 
-                    {/* 右一：微信经典「大D笑脸」（严格1:1还原图六：外圈 + 聚拢实心双眼 + 水平上唇 + 饱满半圆大D嘴） */}
+                    {/* 右一：纯正微信大笑脸（参考图一：双黑实心小圆眼 + 纯正大微笑曲线，两角微翘） */}
                     <button
                         type="button"
                         onClick={onToggleStickerPanel}
@@ -886,15 +880,15 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         aria-label="表情贴纸"
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
-                            <circle cx="10.8" cy="11.2" r="1.6" fill="#111111" />
-                            <circle cx="17.2" cy="11.2" r="1.6" fill="#111111" />
-                            {/* 经典大D嘴：上边缘水平横线，下半部半圆弧 */}
-                            <path d="M9.2 15.5H18.8C18.8 19 16.6 21 14 21C11.4 21 9.2 19 9.2 15.5Z" stroke="#111111" strokeWidth="1.8" strokeLinejoin="round" />
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
+                            <circle cx="10" cy="11" r="1.5" fill="#111111" />
+                            <circle cx="18" cy="11" r="1.5" fill="#111111" />
+                            {/* 参考图一：饱满的大半月牙微笑弧線 */}
+                            <path d="M8.5 15.5C9.5 19 11.5 20.8 14 20.8C16.5 20.8 18.5 19 19.5 15.5" stroke="#111111" strokeWidth="1.8" strokeLinecap="round" />
                         </svg>
                     </button>
 
-                    {/* 右二：圆圈十字「+」（功能归位：直接触发 AI 回复 / 发送并触发回复） */}
+                    {/* 右二：圆圈十字加号（功能归位：直接触发 AI 回复 / 发送并触发回复） */}
                     <button
                         type="button"
                         onClick={() => {
@@ -919,14 +913,14 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                     >
                         {isGenerating ? (
                             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                                <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
+                                <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
                                 <rect x="10" y="10" width="8" height="8" rx="1.5" fill="#111111" />
                             </svg>
                         ) : (
                             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                                <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
-                                <line x1="14" y1="8" x2="14" y2="20" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
-                                <line x1="8" y1="14" x2="20" y2="14" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
+                                <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
+                                <line x1="14" y1="8" x2="14" y2="20" stroke="#111111" strokeWidth="1.8" strokeLinecap="round" />
+                                <line x1="8" y1="14" x2="20" y2="14" stroke="#111111" strokeWidth="1.8" strokeLinecap="round" />
                             </svg>
                         )}
                     </button>
@@ -1037,59 +1031,16 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             )}
 
             {showPlusMenu && (
-                pagedPlusMenu ? (
-                    /* 左右分页横滑模式 (3行×4列=12项每页) */
-                    <div className="chat-plus-menu" style={{ maxHeight: "none", overflow: "hidden", padding: 0 }}>
-                        <div
-                            className="chat-plus-menu-paged-wrap"
-                            onScroll={e => {
-                                const target = e.currentTarget;
-                                const pageIdx = Math.round(target.scrollLeft / target.clientWidth);
-                                setActivePlusPage(pageIdx);
-                            }}
-                        >
-                            {Array.from({ length: Math.ceil(plusMenuItems.length / 12) }).map((_, pIdx) => (
-                                <div key={pIdx} className="chat-plus-menu-paged-page">
-                                    {plusMenuItems.slice(pIdx * 12, (pIdx + 1) * 12).map((item, i) => (
-                                        <div
-                                            key={`${item.label}-${i}`}
-                                            onClick={item.onClick}
-                                            className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer"
-                                            {...(item.active ? { "data-active": "" } : {})}
-                                        >
-                                            <div className="chat-plus-icon-box">
-                                                {item.icon}
-                                            </div>
-                                            <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ))}
+                <div className="chat-plus-menu">
+                    {plusMenuItems.map((item, i) => (
+                        <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
+                            <div className="chat-plus-icon-box">
+                                {item.icon}
+                            </div>
+                            <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
                         </div>
-                        {Math.ceil(plusMenuItems.length / 12) > 1 && (
-                            <div className="chat-plus-menu-dots">
-                                {Array.from({ length: Math.ceil(plusMenuItems.length / 12) }).map((_, dotIdx) => (
-                                    <span
-                                        key={dotIdx}
-                                        className={`chat-plus-menu-dot ${dotIdx === activePlusPage ? "is-active" : ""}`}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    /* 纵向滚动模式 (3行定高，惯性滚动) */
-                    <div className="chat-plus-menu">
-                        {plusMenuItems.map((item, i) => (
-                            <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
-                                <div className="chat-plus-icon-box">
-                                    {item.icon}
-                                </div>
-                                <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
-                            </div>
-                        ))}
-                    </div>
-                )
+                    ))}
+                </div>
             )}
             {showPlusMenu && (
                 <ChatPluginSlot name="chat.inputToolbar" slotProps={{ isGroup }} className="chat-plugin-input-toolbar" />
@@ -6547,8 +6498,6 @@ function formatCallDurationDisplay(durationStr: string): string {
                 onStopGeneration={clearStuckGeneration}
                 onTriggerAIResponse={triggerAIResponse}
                 onSendSticker={(name, url) => { setShowStickerPanel(false); sendRichMessage("sticker", { label: name, stickerUrl: url }); }}
-                wechatMode={loadChatAppSettings().chatInputBarStyle === "wechat"}
-                pagedPlusMenu={loadChatAppSettings().pagedPlusMenuEnabled ?? loadChatAppSettings().plusMenuLayoutStyle === "paged"}
             />
             ))}
 
