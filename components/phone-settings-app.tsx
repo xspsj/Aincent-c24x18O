@@ -115,6 +115,7 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
     const [floatingDockEnabled, setFloatingDockEnabled] = useState(false);
     const [floatingDockSheetOpen, setFloatingDockSheetOpen] = useState(false);
     const [keepAlive, setKeepAlive] = useState(false);
+    const [appearanceThemeMode, setAppearanceThemeMode] = useState<"system" | "light" | "dark">("system");
     // 角色电脑：施工中弹窗（返回 / 仍要看看）
     const pageBodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -253,6 +254,12 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         onNotice(next ? "已开启后台保活" : "已关闭后台保活");
     }, [onNotice]);
 
+    const handleAppearanceThemeChange = useCallback((mode: "system" | "light" | "dark") => {
+        setAppearanceThemeMode(mode);
+        saveChatAppSettings({ ...loadChatAppSettings(), appearanceThemeMode: mode });
+        onNotice(`外观模式已切换为：${mode === "system" ? "跟随系统" : mode === "light" ? "浅色模式" : "深色模式"}`);
+    }, [onNotice]);
+
     const imageGenerationItem = SETTINGS_MENU.find(i => i.id === "imageGeneration")!;
     const imageGenerationFeaturedItem: FeaturedCardItem = {
         id: imageGenerationItem.id,
@@ -355,6 +362,7 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         setQuickActionEnabled(settings.quickActionEnabled === true);
         setFloatingDockEnabled(settings.floatingDockEnabled === true);
         setKeepAlive(loadKeepAlive());
+        setAppearanceThemeMode(settings.appearanceThemeMode || "system");
     }, []);
 
     // Listen for mascot navigation mode (e.g. jump to worldbook/regex tab)
@@ -428,6 +436,45 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
                                 <FeaturedCard item={agentComputerFeaturedItem} />
                             </div>
                         </div>
+                        <div className="settings-appearance-section">
+                            <h3 className="settings-menu-section-title">Appearance</h3>
+                            <div className="app-card card-featured settings-toggle-card flex-col items-stretch gap-3 !p-4">
+                                <div className="flex items-center gap-3">
+                                    <span className="card-icon card-icon-glass">
+                                        <GlassIcon name="presets" />
+                                    </span>
+                                    <div className="card-featured-body">
+                                        <div className="card-featured-label">外观模式</div>
+                                        <div className="card-featured-desc">选择全局界面与聊天沉浸色彩风格</div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 p-1 rounded-xl bg-black/5 dark:bg-white/10 gap-1 text-center">
+                                    {([
+                                        { key: "system", label: "跟随系统", icon: "🌓" },
+                                        { key: "light", label: "浅色", icon: "☀️" },
+                                        { key: "dark", label: "深色", icon: "🌙" },
+                                    ] as const).map(tab => {
+                                        const active = appearanceThemeMode === tab.key;
+                                        return (
+                                            <button
+                                                key={tab.key}
+                                                type="button"
+                                                onClick={() => handleAppearanceThemeChange(tab.key)}
+                                                className={`py-1.5 px-2 rounded-lg ts-12 font-medium flex items-center justify-center gap-1.5 transition-all ${
+                                                    active
+                                                        ? "bg-white dark:bg-black/40 text-[var(--c-text-title)] shadow-sm font-semibold"
+                                                        : "text-[var(--c-text)] opacity-70 hover:opacity-100"
+                                                }`}
+                                            >
+                                                <span className="text-xs">{tab.icon}</span>
+                                                <span>{tab.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="settings-realtime-section">
                             <h3 className="settings-menu-section-title">Runtime</h3>
                             <div className="app-card card-featured settings-toggle-card">
