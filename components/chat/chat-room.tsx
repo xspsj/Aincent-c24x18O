@@ -608,8 +608,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGenerating: boolean;
     theaterMode: boolean;
     enterToSendEnabled: boolean;
-    wechatMode?: boolean;
-    offlineMode?: boolean;
     quotingMessage: ChatMessage | null;
     showEmojiPanel: boolean;
     showStickerPanel: boolean;
@@ -631,8 +629,10 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     onStopGeneration: () => void;
     onTriggerAIResponse: () => void;
 	onSendSticker: (name: string, url?: string) => void;
+    wechatMode?: boolean;
 }>(function ChatTextInputBar({
     characterName,
+    wechatMode = false,
     characterId,
     stickerCharacterIds,
     isGroup,
@@ -641,8 +641,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGenerating,
     theaterMode,
     enterToSendEnabled,
-    wechatMode = false,
-    offlineMode = false,
     quotingMessage,
     showEmojiPanel,
     showStickerPanel,
@@ -665,7 +663,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     onTriggerAIResponse,
     onSendSticker,
 }, ref) {
-    const [showWechatVoiceMenu, setShowWechatVoiceMenu] = useState(false);
     const [inputText, setInputText] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     // 表情包搜索联想：ESC/失焦置 true 隐藏，输入变化重新开启
@@ -679,6 +676,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     }, [muteUntilMs]);
     const muteRemainingMs = muteUntilMs > muteNowTick ? muteUntilMs - muteNowTick : 0;
     const inputLocked = isSpectator || muteRemainingMs > 0;
+    const [showWechatVoiceMenu, setShowWechatVoiceMenu] = useState(false);
 
     const resetTextareaHeight = () => {
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -785,91 +783,58 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 />
             )}
             {wechatMode ? (
-                /* ── 微信风格单行工具栏 ── */
-                <div className="chat-wechat-input-row relative flex items-center gap-2">
-                    {/* 左侧：微信原版发声波图标（带点击收纳菜单） */}
-                    <div className="relative shrink-0 flex items-center justify-center">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setShowEmojiPanel(false);
-                                setShowStickerPanel(false);
-                                setShowPlusMenu(false);
-                                setShowWechatVoiceMenu(!showWechatVoiceMenu);
-                            }}
-                            className="chat-wechat-btn"
-                            aria-label="收纳菜单"
-                            title="收纳菜单"
-                        >
-                            {/* 1:1 还原微信圆圈声波图标（图三） */}
-                            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                                <circle cx="14" cy="14" r="11" stroke="#111" strokeWidth="1.8" />
-                                <path d="M12.2 14l-2.4-1.8v3.6L12.2 14z" fill="#111" />
-                                <path d="M14.6 11.2a4 4 0 0 1 0 5.6" stroke="#111" strokeWidth="1.8" strokeLinecap="round" />
-                                <path d="M17.2 9.2a7 7 0 0 1 0 9.6" stroke="#111" strokeWidth="1.8" strokeLinecap="round" />
-                            </svg>
-                        </button>
-
-                        {/* 左侧轻量气泡 Popover */}
-                        {showWechatVoiceMenu && (
-                            <div className="chat-wechat-popover-menu absolute bottom-full mb-3 left-0 z-30 flex items-center gap-3 px-3 py-2 rounded-2xl shadow-xl backdrop-blur-md">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        onToggleOfflineMode();
-                                        setShowWechatVoiceMenu(false);
-                                    }}
-                                    className="flex flex-col items-center gap-1 text-[var(--c-text)] hover:opacity-80 transition-opacity"
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" />
-                                            <circle cx="12" cy="10" r="3" />
-                                        </svg>
-                                    </div>
-                                    <span className="ts-10 leading-none whitespace-nowrap">{offlineMode ? "切回线上" : "切到线下"}</span>
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowWechatVoiceMenu(false);
-                                        onToggleEmojiPanel();
-                                    }}
-                                    disabled={inputLocked}
-                                    className="flex flex-col items-center gap-1 text-[var(--c-text)] hover:opacity-80 transition-opacity"
-                                    style={inputLocked ? { opacity: 0.35 } : undefined}
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" />
-                                        </svg>
-                                    </div>
-                                    <span className="ts-10 leading-none whitespace-nowrap">Emoji</span>
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowWechatVoiceMenu(false);
-                                        onTriggerAIResponse();
-                                    }}
-                                    className="flex flex-col items-center gap-1 text-[var(--c-text)] hover:opacity-80 transition-opacity"
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-                                        </svg>
-                                    </div>
-                                    <span className="ts-10 leading-none whitespace-nowrap">AI触发</span>
-                                </button>
-                                <div className="chat-wechat-popover-triangle" />
+                /* 微信风格单行工具栏 (wechatMode) */
+                <div className="chat-wechat-bar-container">
+                    {/* 左侧收纳气泡浮层 */}
+                    {showWechatVoiceMenu && (
+                        <div className="chat-wechat-popover">
+                            <div className="chat-wechat-popover-item" onClick={() => { onToggleOfflineMode(); setShowWechatVoiceMenu(false); }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+                                <span>线下模式</span>
                             </div>
-                        )}
-                    </div>
+                            <div className="chat-wechat-popover-item" onClick={() => { onToggleEmojiPanel(); setShowWechatVoiceMenu(false); }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
+                                <span>Emoji</span>
+                            </div>
+                            <div className="chat-wechat-popover-item" onClick={() => {
+                                const trimmed = inputText.trim();
+                                if (!inputLocked && trimmed) {
+                                    if (onSendText(trimmed, { autoReply: true })) {
+                                        setInputText("");
+                                        resetTextareaHeight();
+                                    }
+                                } else {
+                                    onTriggerAIResponse();
+                                }
+                                setShowWechatVoiceMenu(false);
+                            }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                                <span>触发AI</span>
+                            </div>
+                            <div className="chat-wechat-popover-arrow" />
+                        </div>
+                    )}
 
-                    {/* 中间输入框 + 内嵌麦克风装饰 */}
-                    <div className="relative flex-1 flex items-center">
+                    {/* 左一：发声波图标（图三特写：外黑圈 + 偏左实心三角扇形 + 两道粗弧声波） */}
+                    <button
+                        type="button"
+                        onClick={() => setShowWechatVoiceMenu(!showWechatVoiceMenu)}
+                        className="ui-bare-btn flex-shrink-0"
+                        aria-label="收纳菜单"
+                    >
+                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
+                            {/* 实心小发声扇形 */}
+                            <path d="M9.5 14L12.5 11.5V16.5L9.5 14Z" fill="#111111" />
+                            {/* 第一道粗声波弧线 */}
+                            <path d="M14.5 11.5C15.8 12.3 16.5 13.1 16.5 14C16.5 14.9 15.8 15.7 14.5 16.5" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
+                            {/* 第二道粗声波弧线 */}
+                            <path d="M17.5 9.5C19.8 10.8 20.8 12.3 20.8 14C20.8 15.7 19.8 17.2 17.5 18.5" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                    </button>
+
+                    {/* 中间：纯白内陷嵌入框 + 内嵌麦克风装饰 */}
+                    <div className="chat-wechat-input-box">
                         <textarea
                             ref={textareaRef}
                             rows={1}
@@ -880,10 +845,9 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 e.target.style.height = "auto";
                                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
                             }}
-                            onFocus={(e) => {
+                            onFocus={e => {
                                 if (panelOpen) {
                                     e.target.blur();
-                                    setShowWechatVoiceMenu(false);
                                     onClosePanels();
                                     const target = e.target as HTMLTextAreaElement;
                                     requestAnimationFrame(() => requestAnimationFrame(() => target.focus()));
@@ -902,69 +866,58 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 }
                             }}
                             enterKeyHint={enterToSendEnabled ? "send" : "enter"}
-                            className="chat-wechat-textarea w-full resize-none py-2 px-3 pr-8 rounded-md text-[var(--c-text)] outline-none"
                             disabled={inputLocked}
                             placeholder={inputLocked
                                 ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
                                 : (theaterMode ? "写下番外指令..." : undefined)}
                         />
-                        {/* 纯视觉装饰麦克风（输入框内嵌右侧） */}
+                        {/* 装饰麦克风（打字时平滑渐隐） */}
                         <div
-                            className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 transition-opacity duration-200 text-[#888] ${
-                                inputText.length > 0 ? "opacity-0" : "opacity-70"
-                            }`}
+                            className="chat-wechat-mic-deco"
+                            style={{ opacity: inputText.length > 0 ? 0 : 0.45 }}
+                            aria-hidden="true"
                         >
-                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="9" y="2" width="6" height="12" rx="3" />
-                                <path d="M5 10a7 7 0 0 0 14 0" />
-                                <line x1="12" y1="17" x2="12" y2="21" />
-                                <line x1="8" y1="21" x2="16" y2="21" />
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#222222" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                                <line x1="12" y1="19" x2="12" y2="22" />
                             </svg>
                         </div>
                     </div>
 
-                    {/* 右侧一：表情贴纸（1:1 还原微信大笑脸 图四） */}
+                    {/* 右一：经典大眼大笑脸表情（图四特写：外黑圈 + 双实心圆眼 + 半月牙微笑弧） */}
                     <button
                         type="button"
-                        onClick={() => {
-                            setShowWechatVoiceMenu(false);
-                            onToggleStickerPanel();
-                        }}
+                        onClick={onToggleStickerPanel}
                         disabled={inputLocked}
-                        className="chat-wechat-btn shrink-0"
-                        style={inputLocked ? { opacity: 0.35 } : undefined}
-                        aria-label="表情贴纸"
-                        title="表情贴纸"
+                        className="ui-bare-btn flex-shrink-0"
+                        aria-label="表情"
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="11" stroke="#111" strokeWidth="1.8" />
-                            <circle cx="10.5" cy="11.5" r="1.3" fill="#111" />
-                            <circle cx="17.5" cy="11.5" r="1.3" fill="#111" />
-                            <path d="M9.8 15.2c.8 2.2 2.3 3.6 4.2 3.6s3.4-1.4 4.2-3.6z" fill="#111" stroke="#111" strokeWidth="1.2" strokeLinejoin="round" />
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
+                            <circle cx="10" cy="11.5" r="1.5" fill="#111111" />
+                            <circle cx="18" cy="11.5" r="1.5" fill="#111111" />
+                            <path d="M9 16C9 18.8 11.2 21 14 21C16.8 21 19 18.8 19 16" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
                         </svg>
                     </button>
 
-                    {/* 右侧二：加号扩展工具箱（1:1 还原微信圆圈加号 图五） */}
+                    {/* 右二：外圆圈十字加号（图五特写：外黑圈 + 匀称十字加号） */}
                     <button
                         type="button"
-                        onClick={() => {
-                            setShowWechatVoiceMenu(false);
-                            onTogglePlusMenu();
-                        }}
+                        onClick={onTogglePlusMenu}
                         disabled={inputLocked}
-                        className="chat-wechat-btn shrink-0"
-                        style={inputLocked ? { opacity: 0.35 } : undefined}
-                        aria-label="更多功能"
-                        title="更多功能"
+                        className="ui-bare-btn flex-shrink-0"
+                        aria-label="更多工具"
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="11" stroke="#111" strokeWidth="1.8" />
-                            <path d="M14 9.2v9.6M9.2 14h9.6" stroke="#111" strokeWidth="1.8" strokeLinecap="round" />
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
+                            <line x1="14" y1="8.5" x2="14" y2="19.5" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
+                            <line x1="8.5" y1="14" x2="19.5" y2="14" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
                         </svg>
                     </button>
                 </div>
             ) : (
-                /* ── 原生默认输入框与动作条 ── */
+                /* 原生横排工具栏 (default) */
                 <>
                     <textarea
                         ref={textareaRef}
@@ -6536,6 +6489,7 @@ function formatCallDurationDisplay(durationStr: string): string {
                 onStopGeneration={clearStuckGeneration}
                 onTriggerAIResponse={triggerAIResponse}
                 onSendSticker={(name, url) => { setShowStickerPanel(false); sendRichMessage("sticker", { label: name, stickerUrl: url }); }}
+                wechatMode={loadChatAppSettings().chatInputBarStyle === "wechat"}
             />
             ))}
 
