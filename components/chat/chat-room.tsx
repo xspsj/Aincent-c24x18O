@@ -629,8 +629,10 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     onStopGeneration: () => void;
     onTriggerAIResponse: () => void;
 	onSendSticker: (name: string, url?: string) => void;
+    wechatMode?: boolean;
 }>(function ChatTextInputBar({
     characterName,
+    wechatMode = false,
     characterId,
     stickerCharacterIds,
     isGroup,
@@ -674,6 +676,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     }, [muteUntilMs]);
     const muteRemainingMs = muteUntilMs > muteNowTick ? muteUntilMs - muteNowTick : 0;
     const inputLocked = isSpectator || muteRemainingMs > 0;
+    const [showWechatVoiceMenu, setShowWechatVoiceMenu] = useState(false);
 
     const resetTextareaHeight = () => {
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -801,7 +804,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         </div>
                     )}
 
-                    {/* 左一：发声波图标（1:1严格提取你发的大图：正圆外圈 + 偏左小三角锥 + 两道开阔对称同心粗圆弧） */}
+                    {/* 左一：发声波图标（基于用户高清大图1:1提取：正圆外圈 + 偏左小三角锥 + 两道开阔对称同心圆弧） */}
                     <button
                         type="button"
                         onClick={() => setShowWechatVoiceMenu(!showWechatVoiceMenu)}
@@ -819,7 +822,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         </svg>
                     </button>
 
-                    {/* 中间：纯净单一圆角输入框 + 1:1大图提取的空心立胶囊麦克风 */}
+                    {/* 中间：纯净单一圆角输入框 + 大图提取的空心立胶囊麦克风 */}
                     <div className="chat-wechat-input-box">
                         <textarea
                             ref={textareaRef}
@@ -857,24 +860,21 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
                                 : (theaterMode ? "写下番外指令..." : undefined)}
                         />
-                        {/* 装饰麦克风（严格1:1按你发的大图：圆角空心胶囊 + U型底托） */}
+                        {/* 装饰麦克风（大图提取：圆角空心胶囊 + U型底托） */}
                         <div
                             className="chat-wechat-mic-deco"
                             style={{ opacity: inputText.length > 0 ? 0 : 0.45 }}
                             aria-hidden="true"
                         >
                             <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-                                {/* 空心立式圆角胶囊 */}
                                 <rect x="12" y="6" width="8" height="13" rx="4" stroke="#444444" strokeWidth="2.1" />
-                                {/* U型托架 */}
                                 <path d="M8.5 14.5C8.5 18.6 11.9 22 16 22C20.1 22 23.5 18.6 23.5 14.5" stroke="#444444" strokeWidth="2.1" strokeLinecap="round" />
-                                {/* 底部连接柱 */}
                                 <line x1="16" y1="22" x2="16" y2="26" stroke="#444444" strokeWidth="2.1" strokeLinecap="round" />
                             </svg>
                         </div>
                     </div>
 
-                    {/* 右一：大图1:1提取的微信实机大笑脸（两个饱满圆眼 + 水平平顶线 + 饱满镂空半圆大下巴弧） */}
+                    {/* 右一：微信实机大张嘴笑脸（两个饱满圆眼 + 水平平顶线 + 饱满镂空半圆大下巴弧） */}
                     <button
                         type="button"
                         onClick={onToggleStickerPanel}
@@ -884,10 +884,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                     >
                         <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
                             <circle cx="16" cy="16" r="14.2" stroke="#111111" strokeWidth="2.1" />
-                            {/* 双饱满黑圆眼 */}
                             <circle cx="11.8" cy="12.5" r="1.9" fill="#111111" />
                             <circle cx="20.2" cy="12.5" r="1.9" fill="#111111" />
-                            {/* 核心灵魂：平直顶边 + 半圆饱满下弧组成的镂空张嘴笑 */}
                             <path
                                 d="M8.8 17.2H23.2C23.2 21.2 20 24.2 16 24.2C12 24.2 8.8 21.2 8.8 17.2Z"
                                 stroke="#111111"
@@ -897,7 +895,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         </svg>
                     </button>
 
-                    {/* 右二：圆圈十字加号（1:1严格对标你发的大图） */}
+                    {/* 右二：圆圈十字加号（触发 AI 回复 / 发送并触发回复） */}
                     <button
                         type="button"
                         onClick={() => {
@@ -6507,8 +6505,8 @@ function formatCallDurationDisplay(durationStr: string): string {
                 onStopGeneration={clearStuckGeneration}
                 onTriggerAIResponse={triggerAIResponse}
                 onSendSticker={(name, url) => { setShowStickerPanel(false); sendRichMessage("sticker", { label: name, stickerUrl: url }); }}
+                wechatMode={loadChatAppSettings().chatInputBarStyle === "wechat"}
             />
-            ))}
 
             {showConfirmMultiDelete && (
                 <ConfirmDialog
