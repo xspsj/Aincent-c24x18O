@@ -39,6 +39,29 @@ export const PhoneChatApp = memo(function PhoneChatApp({ onClose, initialSession
     // Cache all visited sessions so their ChatRoom stays mounted (hidden)
     const [visitedSessions, setVisitedSessions] = useState<Map<string, ChatSession>>(new Map());
     const [dbReady, setDbReady] = useState(false);
+    const [appearanceThemeMode, setAppearanceThemeMode] = useState<"system" | "light" | "dark">("system");
+    const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const media = window.matchMedia("(prefers-color-scheme: dark)");
+        setSystemPrefersDark(media.matches);
+        const listener = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
+        media.addEventListener("change", listener);
+        return () => media.removeEventListener("change", listener);
+    }, []);
+
+    useEffect(() => {
+        const syncTheme = () => {
+            const settings = loadChatAppSettings();
+            setAppearanceThemeMode(settings.appearanceThemeMode || "system");
+        };
+        syncTheme();
+        window.addEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncTheme);
+        return () => window.removeEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncTheme);
+    }, []);
+
+    const isDarkMode = appearanceThemeMode === "dark" || (appearanceThemeMode === "system" && systemPrefersDark);
     const [hideTabBar, setHideTabBar] = useState(false);
 
     // Hydrate IndexedDB → in-memory caches on mount
@@ -236,6 +259,7 @@ export const PhoneChatApp = memo(function PhoneChatApp({ onClose, initialSession
     return (
         <div
             className="chat-app absolute inset-0 flex flex-col overflow-hidden z-10"
+            data-dark={isDarkMode ? "true" : "false"}
             {...(activeSession || activeMascot ? { "data-room-active": "" } : {})}
             {...(hideTabBar ? { "data-tabbar-hidden": "" } : {})}
         >

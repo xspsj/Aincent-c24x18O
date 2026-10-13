@@ -557,19 +557,17 @@
   right: 0;
   border-radius: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--c-card) 55%, transparent);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-top: 0.5px solid var(--c-card-border);
+  background: #000000;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
   box-shadow: none;
 }
 
 .chat-bottom-glass-bar {
-  background: color-mix(in srgb, var(--c-card) 78%, transparent);
-  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
-  border-top-color: color-mix(in srgb, var(--c-card-border) 70%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
+  background: #000000;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
 }
 
 .chat-tab {
@@ -646,9 +644,39 @@
   right: 0;
   z-index: 10;
   padding: 8px 16px max(8px, env(safe-area-inset-bottom, 0px));
-  background: color-mix(in srgb, var(--c-input, var(--c-page-body-bg)) 55%, transparent);
+  background: var(--chat-input-bar-bg, color-mix(in srgb, var(--c-input, var(--c-page-body-bg)) 55%, transparent));
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* 深色模式下的聊天室底栏与顶栏实心/沉浸适配 */
+.chat-app[data-dark="true"] .chat-input-bar {
+  --chat-input-bar-bg: #121417;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+.chat-app[data-dark="true"] .chat-input-bar .chat-input-textarea {
+  background: #1e2229;
+  color: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.chat-app[data-dark="true"] .chat-room-wrapper .page-header {
+  background: #121417 !important;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9;
+}
+.chat-app[data-dark="true"] .chat-room-wrapper .page-header .page-title {
+  color: #f1f5f9;
+}
+.chat-app[data-dark="true"] .chat-room-wrapper .page-header button {
+  color: #cbd5e1;
+}
+
+/* 聊天壁纸暗黑护眼滤镜与无壁纸纯黑 */
+.chat-app[data-dark="true"] .chat-room-wrapper:not([data-has-bg-image]) {
+  background-color: #0b0c0e !important;
+}
+.chat-app[data-dark="true"] .chat-room-wrapper[data-has-bg-image] {
+  filter: brightness(0.65) contrast(0.95);
 }
 
 .chat-input-bar .chat-input-textarea {
@@ -736,122 +764,6 @@
 .chat-input-bar .chat-input-actions svg {
   width: 24px;
   height: 24px;
-}
-
-/* ── 加号工具箱菜单面板 ── */
-.chat-plus-menu-container {
-  position: relative;
-  width: 100%;
-  margin-top: 10px;
-  padding-bottom: 6px;
-}
-
-/* 纵向滚动模式：严格限制展示 3 行高度，支持平滑惯性上下滚动 */
-.chat-plus-menu-vertical {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px 8px;
-  max-height: 258px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 4px 2px;
-}
-
-/* 左右横滑模式：Scroll Snap 微信同款分页，每页固定 3 行 × 4 列 (12 项) */
-.chat-plus-menu-paged-viewport {
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  width: 100%;
-  max-height: 258px;
-}
-.chat-plus-menu-paged-viewport::-webkit-scrollbar {
-  display: none;
-}
-
-.chat-plus-menu-page {
-  flex: 0 0 100%;
-  width: 100%;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(3, auto);
-  gap: 14px 8px;
-  padding: 4px 2px;
-  box-sizing: border-box;
-}
-
-/* 工具箱单项样式 */
-.chat-plus-menu-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s ease, opacity 0.15s ease;
-}
-.chat-plus-menu-item:active {
-  transform: scale(0.92);
-  opacity: 0.85;
-}
-
-.chat-plus-icon-box {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--c-card) 90%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--c-card-border) 40%, transparent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text);
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.chat-plus-menu-item[data-active] .chat-plus-icon-box {
-  background: color-mix(in srgb, var(--c-icon-active) 15%, transparent);
-  border-color: var(--c-icon-active);
-  color: var(--c-icon-active);
-}
-
-.chat-plus-custom-app-icon {
-  width: 30px;
-  height: 30px;
-  background-size: cover;
-  background-position: center;
-  border-radius: 6px;
-  display: inline-block;
-}
-
-/* 分页小圆点指示器 */
-.chat-plus-dots-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 0 2px;
-}
-
-.chat-plus-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--c-icon);
-  opacity: 0.3;
-  transition: all 0.2s ease;
-}
-
-.chat-plus-dot.active {
-  opacity: 0.95;
-  background: var(--c-icon-active);
-  width: 14px;
-  border-radius: 3px;
 }
 
 .chat-offline-toggle {

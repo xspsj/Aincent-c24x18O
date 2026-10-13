@@ -166,9 +166,19 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
-    const [appearanceThemeMode, setAppearanceThemeMode] = useState<"system" | "light" | "dark">("system");
-    const [plusMenuPaged, setPlusMenuPaged] = useState(false);
+    const [systemPrefersDark, setSystemPrefersDark] = useState(false);
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const media = window.matchMedia("(prefers-color-scheme: dark)");
+        setSystemPrefersDark(media.matches);
+        const listener = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
+        media.addEventListener("change", listener);
+        return () => media.removeEventListener("change", listener);
+    }, []);
+
+    const isDarkMode = appearanceThemeMode === "dark" || (appearanceThemeMode === "system" && systemPrefersDark);
     const [walletSummary, setWalletSummary] = useState(() => {
         const wallet = loadWalletState();
         return {
@@ -184,8 +194,6 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
-        setAppearanceThemeMode(settings.appearanceThemeMode || "system");
-        setPlusMenuPaged(settings.plusMenuLayoutStyle === "paged");
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
             setNotifHint(readBrowserNotificationPermissionHint());
         }
@@ -256,16 +264,6 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const handleCallVibrationToggle = (enabled: boolean) => {
         setCallVibrationEnabled(enabled);
         saveChatAppSettings({ ...loadChatAppSettings(), callVibrationEnabled: enabled });
-    };
-
-    const handleAppearanceThemeChange = (mode: "system" | "light" | "dark") => {
-        setAppearanceThemeMode(mode);
-        saveChatAppSettings({ ...loadChatAppSettings(), appearanceThemeMode: mode });
-    };
-
-    const handlePlusMenuPagedToggle = (enabled: boolean) => {
-        setPlusMenuPaged(enabled);
-        saveChatAppSettings({ ...loadChatAppSettings(), plusMenuLayoutStyle: enabled ? "paged" : "vertical" });
     };
 
     if (showFollowUpEditor) {
@@ -381,7 +379,12 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         type="button"
                         className="mx-4 mb-4 rounded-2xl overflow-hidden text-left relative min-h-[132px] p-5 flex flex-col justify-between"
                         onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowWalletPanel(true); }}
-                        style={{ background: "#eaf5ff", boxShadow: "0 8px 24px rgba(0,0,0,0.025)", border: "1px solid rgba(255,255,255,0.72)", color: "#172033" }}
+                        style={{
+                            background: isDarkMode ? "#182232" : "#eaf5ff",
+                            boxShadow: "0 8px 24px rgba(0,0,0,0.025)",
+                            border: isDarkMode ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.72)",
+                            color: isDarkMode ? "#f1f5f9" : "#172033",
+                        }}
                     >
                         <div className="relative flex items-start justify-between gap-4">
                             <div>
@@ -392,7 +395,14 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </div>
                         <div className="relative flex items-center justify-between gap-3">
                             <span className="ts-12 opacity-75">余额管理 · 银行卡与流水</span>
-                            <span className="h-8 px-3 rounded-full bg-white/70 border border-white/80 ts-12 font-semibold flex items-center gap-1" style={{ color: "#246bfd" }}>
+                            <span
+                                className="h-8 px-3 rounded-full ts-12 font-semibold flex items-center gap-1"
+                                style={{
+                                    background: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.7)",
+                                    border: isDarkMode ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(255,255,255,0.8)",
+                                    color: isDarkMode ? "#93c5fd" : "#246bfd",
+                                }}
+                            >
                                 查看
                                 <ChevronRight size={14} />
                             </span>
@@ -451,43 +461,6 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </button>
                     </div>
 
-                    {/* 外观模式（三胶囊切换卡片） */}
-                    <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl p-4 flex flex-col gap-3"
-                         style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
-                        <div className="flex items-center gap-3">
-                            <Moon size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25} />
-                            <div className="flex flex-col flex-1 text-left gap-0.5">
-                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">外观模式</span>
-                                <span className="ts-11 text-[var(--c-text)] opacity-70">界面色彩风格与暗黑模式适配偏好</span>
-                            </div>
-                        </div>
-                        {/* 三胶囊分段条 */}
-                        <div className="grid grid-cols-3 p-1 rounded-xl bg-black/5 dark:bg-white/10 gap-1 text-center">
-                            {([
-                                { key: "system", label: "跟随系统", icon: "🌓" },
-                                { key: "light", label: "浅色", icon: "☀️" },
-                                { key: "dark", label: "深色", icon: "🌙" },
-                            ] as const).map(tab => {
-                                const active = appearanceThemeMode === tab.key;
-                                return (
-                                    <button
-                                        key={tab.key}
-                                        type="button"
-                                        onClick={() => handleAppearanceThemeChange(tab.key)}
-                                        className={`py-1.5 px-2 rounded-lg ts-12 font-medium flex items-center justify-center gap-1.5 transition-all ${
-                                            active
-                                                ? "bg-white dark:bg-black/40 text-[var(--c-text-title)] shadow-sm font-semibold"
-                                                : "text-[var(--c-text)] opacity-70 hover:opacity-100"
-                                        }`}
-                                    >
-                                        <span className="text-xs">{tab.icon}</span>
-                                        <span>{tab.label}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
                     {/* 输入与提醒 */}
                     <div className="mx-4 mb-4 bg-[var(--c-card)] rounded-2xl px-4 py-1 flex flex-col"
                          style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
@@ -498,15 +471,6 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">开启后 Enter 发送，Shift+Enter 换行</span>
                             </div>
                             <Toggle checked={enterToSendEnabled} onChange={handleEnterToSendToggle} />
-                        </div>
-
-                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
-                            <SlidersHorizontal size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
-                            <div className="flex flex-col flex-1 text-left gap-0.5">
-                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">工具箱横向分页</span>
-                                <span className="ts-11 text-[var(--c-text)] opacity-70">开启后按 3 行 12 格左右横滑（微信同款），关闭为上下滚动</span>
-                            </div>
-                            <Toggle checked={plusMenuPaged} onChange={handlePlusMenuPagedToggle} />
                         </div>
 
                         <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
