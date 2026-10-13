@@ -598,85 +598,6 @@ function normalizeCustomPanelHeight(value: unknown): string | undefined {
     return undefined;
 }
 
-type PlusMenuItem = {
-    icon: React.ReactNode;
-    label: string;
-    active?: boolean;
-    onClick?: () => void;
-};
-
-function PlusMenuPaged({ items }: { items: PlusMenuItem[] }) {
-    const pageSize = 12; // 3行 × 4列 = 12个
-    const pages = useMemo(() => {
-        const safeItems = Array.isArray(items) ? items : [];
-        const chunks: PlusMenuItem[][] = [];
-        for (let i = 0; i < safeItems.length; i += pageSize) {
-            chunks.push(safeItems.slice(i, i + pageSize));
-        }
-        return chunks.length > 0 ? chunks : [[]];
-    }, [items]);
-
-    const [currentPage, setCurrentPage] = useState(0);
-    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-
-    const handleScroll = () => {
-        const el = scrollContainerRef.current;
-        if (!el || el.clientWidth === 0) return;
-        const pageIndex = Math.round(el.scrollLeft / el.clientWidth);
-        if (pageIndex !== currentPage) {
-            setCurrentPage(pageIndex);
-        }
-    };
-
-    return (
-        <div className="chat-plus-paged-wrapper flex flex-col">
-            <div
-                ref={scrollContainerRef}
-                onScroll={handleScroll}
-                className="chat-plus-paged-scroll flex w-full overflow-x-auto overflow-y-hidden"
-                style={{ scrollSnapType: "x mandatory", scrollbarWidth: "none" }}
-            >
-                {pages.map((pageItems, pageIdx) => (
-                    <div
-                        key={pageIdx}
-                        className="chat-plus-paged-page grid grid-cols-4 grid-rows-3 gap-y-3.5 w-full shrink-0"
-                        style={{ scrollSnapAlign: "start" }}
-                    >
-                        {pageItems.map((item, i) => (
-                            <div
-                                key={`${item.label}-${i}`}
-                                onClick={item.onClick}
-                                className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer"
-                                {...(item.active ? { "data-active": "" } : {})}
-                            >
-                                <div className="chat-plus-icon-box">
-                                    {item.icon}
-                                </div>
-                                <span className="ts-11 text-[var(--c-text)] truncate max-w-[68px] text-center">{item.label}</span>
-                            </div>
-                        ))}
-                    </div>
-                ))}
-            </div>
-
-            {pages.length > 1 && (
-                <div className="flex items-center justify-center gap-1.5 pt-2 pb-1">
-                    {pages.map((_, idx) => (
-                        <div
-                            key={idx}
-                            className={`h-1.5 rounded-full transition-all duration-200 ${
-                                currentPage === idx
-                                    ? "w-3 bg-[var(--c-text-title)] opacity-80"
-                                    : "w-1.5 bg-[var(--c-icon)] opacity-30"
-                            }`}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
-
 const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     characterName: string;
     characterId: string;
@@ -688,7 +609,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     theaterMode: boolean;
     enterToSendEnabled: boolean;
     wechatMode?: boolean;
-    pagedPlusMenu?: boolean;
     offlineMode?: boolean;
     quotingMessage: ChatMessage | null;
     showEmojiPanel: boolean;
@@ -722,7 +642,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     theaterMode,
     enterToSendEnabled,
     wechatMode = false,
-    pagedPlusMenu = false,
     offlineMode = false,
     quotingMessage,
     showEmojiPanel,
@@ -1045,125 +964,121 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                     </button>
                 </div>
             ) : (
-                /* ── 原生默认输入框 ── */
-                <textarea
-                    ref={textareaRef}
-                    rows={1}
-                    value={inputText}
-                    onChange={e => {
-                        setInputText(e.target.value);
-                        setSuggestClosed(false);
-                        e.target.style.height = "auto";
-                        e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
-                    }}
-                    onFocus={(e) => {
-                        if (panelOpen) {
-                            e.target.blur();
-                            onClosePanels();
-                            const target = e.target as HTMLTextAreaElement;
-                            requestAnimationFrame(() => requestAnimationFrame(() => target.focus()));
-                        }
-                        setSuggestClosed(false);
-                    }}
-                    onBlur={() => setSuggestClosed(true)}
-                    onKeyDown={e => {
-                        if (e.key === "Escape") {
-                            setSuggestClosed(true);
-                            return;
-                        }
-                        if (shouldSendChatInputOnEnter(e, enterToSendEnabled)) {
-                            e.preventDefault();
-                            handleSubmit();
-                        }
-                    }}
-                    enterKeyHint={enterToSendEnabled ? "send" : "enter"}
-                    className="chat-input-textarea"
-                    disabled={inputLocked}
-                    placeholder={inputLocked
-                        ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
-                        : (theaterMode ? "写下番外指令..." : undefined)}
-                />
-            )}
-
-            {wechatMode ? null : (
-                <div className="chat-input-actions">
-                    <button
-                        onClick={onToggleOfflineMode}
-                        className="ui-bare-btn text-[var(--c-text)] chat-offline-toggle"
-                        aria-label="线下模式"
-                        title="线下模式"
-                    >
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" />
-                            <circle cx="12" cy="10" r="3" />
-                        </svg>
-                    </button>
-                    <button onClick={onToggleEmojiPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
-                    </button>
-                    <button onClick={onToggleStickerPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" /><polyline points="14 3 14 8 21 8" /><path d="M8 13h0" /><path d="M16 13h0" /><path d="M10 17c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /></svg>
-                    </button>
-                    <button onClick={onTogglePlusMenu} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={!isGenerating && (inputLocked || !inputText.trim())}
-                        style={inputLocked && !isGenerating ? { opacity: 0.35 } : undefined}
-                        className="ui-bare-btn text-[var(--c-text)]"
-                        aria-label={isGenerating ? "停止本轮生成" : "发送"}
-                        title={isGenerating ? "停止本轮生成" : "发送"}
-                    >
-                        {isGenerating ? (
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <circle cx="12" cy="12" r="10" />
-                                <rect x="9" y="9" width="6" height="6" rx="1" />
-                            </svg>
-                        ) : (
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-                        )}
-                    </button>
-                    {!isGenerating && (
-                        <button
-                            className="ui-bare-btn text-[var(--c-text)]"
-                            title={!inputLocked && inputText.trim() ? "发送输入框内容并触发回复" : "触发 AI 主动回复"}
-                            onClick={() => {
-                                const trimmed = inputText.trim();
-                                if (!inputLocked && trimmed) {
-                                    if (!onSendText(trimmed, { autoReply: true })) return;
-                                    setInputText("");
-                                    resetTextareaHeight();
-                                } else {
-                                    onTriggerAIResponse();
-                                }
+                /* ── 原生默认输入框与动作条 ── */
+                <>
+                    <textarea
+                        ref={textareaRef}
+                        rows={1}
+                        value={inputText}
+                        onChange={e => {
+                            setInputText(e.target.value);
+                            setSuggestClosed(false);
+                            e.target.style.height = "auto";
+                            e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                        }}
+                        onFocus={(e) => {
+                            if (panelOpen) {
+                                e.target.blur();
                                 onClosePanels();
-                            }}
+                                const target = e.target as HTMLTextAreaElement;
+                                requestAnimationFrame(() => requestAnimationFrame(() => target.focus()));
+                            }
+                            setSuggestClosed(false);
+                        }}
+                        onBlur={() => setSuggestClosed(true)}
+                        onKeyDown={e => {
+                            if (e.key === "Escape") {
+                                setSuggestClosed(true);
+                                return;
+                            }
+                            if (shouldSendChatInputOnEnter(e, enterToSendEnabled)) {
+                                e.preventDefault();
+                                handleSubmit();
+                            }
+                        }}
+                        enterKeyHint={enterToSendEnabled ? "send" : "enter"}
+                        className="chat-input-textarea"
+                        disabled={inputLocked}
+                        placeholder={inputLocked
+                            ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
+                            : (theaterMode ? "写下番外指令..." : undefined)}
+                    />
+
+                    <div className="chat-input-actions">
+                        <button
+                            onClick={onToggleOfflineMode}
+                            className="ui-bare-btn text-[var(--c-text)] chat-offline-toggle"
+                            aria-label="线下模式"
+                            title="线下模式"
                         >
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-                                <path d="M20 3v4" /><path d="M22 5h-4" />
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" />
+                                <circle cx="12" cy="10" r="3" />
                             </svg>
                         </button>
-                    )}
-                </div>
+                        <button onClick={onToggleEmojiPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
+                        </button>
+                        <button onClick={onToggleStickerPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" /><polyline points="14 3 14 8 21 8" /><path d="M8 13h0" /><path d="M16 13h0" /><path d="M10 17c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /></svg>
+                        </button>
+                        <button onClick={onTogglePlusMenu} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
+                        </button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={!isGenerating && (inputLocked || !inputText.trim())}
+                            style={inputLocked && !isGenerating ? { opacity: 0.35 } : undefined}
+                            className="ui-bare-btn text-[var(--c-text)]"
+                            aria-label={isGenerating ? "停止本轮生成" : "发送"}
+                            title={isGenerating ? "停止本轮生成" : "发送"}
+                        >
+                            {isGenerating ? (
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <rect x="9" y="9" width="6" height="6" rx="1" />
+                                </svg>
+                            ) : (
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                            )}
+                        </button>
+                        {!isGenerating && (
+                            <button
+                                className="ui-bare-btn text-[var(--c-text)]"
+                                title={!inputLocked && inputText.trim() ? "发送输入框内容并触发回复" : "触发 AI 主动回复"}
+                                onClick={() => {
+                                    const trimmed = inputText.trim();
+                                    if (!inputLocked && trimmed) {
+                                        if (!onSendText(trimmed, { autoReply: true })) return;
+                                        setInputText("");
+                                        resetTextareaHeight();
+                                    } else {
+                                        onTriggerAIResponse();
+                                    }
+                                    onClosePanels();
+                                }}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+                                    <path d="M20 3v4" /><path d="M22 5h-4" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                </>
             )}
 
             {showPlusMenu && (
-                pagedPlusMenu ? (
-                    <PlusMenuPaged items={plusMenuItems} />
-                ) : (
-                    <div className="chat-plus-menu chat-plus-menu-vertical">
-                        {plusMenuItems.map((item, i) => (
-                            <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
-                                <div className="chat-plus-icon-box">
-                                    {item.icon}
-                                </div>
-                                <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                <div className="chat-plus-menu">
+                    {plusMenuItems.map((item, i) => (
+                        <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
+                            <div className="chat-plus-icon-box">
+                                {item.icon}
                             </div>
-                        ))}
-                    </div>
-                )
+                            <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                        </div>
+                    ))}
+                </div>
             )}
             {showPlusMenu && (
                 <ChatPluginSlot name="chat.inputToolbar" slotProps={{ isGroup }} className="chat-plugin-input-toolbar" />
@@ -5766,7 +5681,7 @@ function formatCallDurationDisplay(durationStr: string): string {
     } : undefined;
 
     return (
-        <div ref={wrapperRef} className={`session-${session.id} chat-room chat-room-wrapper page-shell inset-0 flex flex-col z-20`} style={chatRoomBackgroundStyle} data-wechat-mode={wechatMode ? "true" : undefined} {...(bgLoading ? { "data-loading": "" } : {})} {...(bgImageResolved ? { "data-has-bg-image": "" } : {})} {...(showSettings ? { "data-settings-open": "" } : {})}>
+        <div ref={wrapperRef} className={`session-${session.id} chat-room-wrapper page-shell inset-0 flex flex-col z-20`} style={chatRoomBackgroundStyle} {...(bgLoading ? { "data-loading": "" } : {})} {...(bgImageResolved ? { "data-has-bg-image": "" } : {})} {...(showSettings ? { "data-settings-open": "" } : {})}>
             {/* Custom CSS Injection for this session — scoped to prevent leaking */}
             {liveCSS && (
                 <SessionCustomCSS css={liveCSS} scope={`.session-${session.id}`} />
@@ -6600,9 +6515,6 @@ function formatCallDurationDisplay(durationStr: string): string {
 	                isGenerating={isGenerating}
 	                theaterMode={theaterMode}
 	                enterToSendEnabled={enterToSendEnabled}
-	                wechatMode={wechatMode}
-	                pagedPlusMenu={pagedPlusMenu}
-	                offlineMode={offlineMode}
 	                quotingMessage={quotingMessage}
                 showEmojiPanel={showEmojiPanel}
                 showStickerPanel={showStickerPanel}
