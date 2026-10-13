@@ -379,12 +379,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         type="button"
                         className="mx-4 mb-4 rounded-2xl overflow-hidden text-left relative min-h-[132px] p-5 flex flex-col justify-between"
                         onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowWalletPanel(true); }}
-                        style={{
-                            background: isDarkMode ? "#182232" : "#eaf5ff",
-                            boxShadow: "0 8px 24px rgba(0,0,0,0.025)",
-                            border: isDarkMode ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.72)",
-                            color: isDarkMode ? "#f1f5f9" : "#172033",
-                        }}
+                        style={{ background: "#eaf5ff", boxShadow: "0 8px 24px rgba(0,0,0,0.025)", border: "1px solid rgba(255,255,255,0.72)", color: "#172033" }}
                     >
                         <div className="relative flex items-start justify-between gap-4">
                             <div>
@@ -395,14 +390,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                         </div>
                         <div className="relative flex items-center justify-between gap-3">
                             <span className="ts-12 opacity-75">余额管理 · 银行卡与流水</span>
-                            <span
-                                className="h-8 px-3 rounded-full ts-12 font-semibold flex items-center gap-1"
-                                style={{
-                                    background: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.7)",
-                                    border: isDarkMode ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(255,255,255,0.8)",
-                                    color: isDarkMode ? "#93c5fd" : "#246bfd",
-                                }}
-                            >
+                            <span className="h-8 px-3 rounded-full bg-white/70 border border-white/80 ts-12 font-semibold flex items-center gap-1" style={{ color: "#246bfd" }}>
                                 查看
                                 <ChevronRight size={14} />
                             </span>
