@@ -7242,18 +7242,10 @@
 }
 
 /* ══════════════════════════════════════════
-   微信风格工具栏与固定高度工具箱
+   微信风格工具栏与无缝平整面板
    ══════════════════════════════════════════ */
 
-/* 加号面板定高 3 行并支持弹性平滑滚动（解决撑爆屏幕问题） */
-.chat-plus-menu {
-  max-height: 258px !important;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
-}
-
-/* 微信模式下取消最外层 chat-input-bar 的多余框和背景 */
+/* 彻底清除微信模式下底栏与面板之间的奇怪深色阴影分割线 */
 .chat-input-bar:has(.chat-wechat-bar-container) {
   padding: 0 !important;
   border: none !important;
@@ -7261,14 +7253,11 @@
   box-shadow: none !important;
 }
 
-/* 微信工具栏激活时，聊天室顶栏与底栏背景保持高度一致 */
-.chat-app[data-wechat-input-active="true"] .page-header,
-.chat-app[data-wechat-input-active="true"] .chat-wechat-bar-container {
+.chat-app[data-wechat-input-active="true"] .page-header {
   background: #f7f7f7 !important;
-  border-color: rgba(0, 0, 0, 0.08) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
 }
 
-/* 微信单行输入栏容器：单层结构，平铺无嵌套外框 */
 .chat-wechat-bar-container {
   display: flex;
   align-items: center;
@@ -7276,12 +7265,26 @@
   padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
   background: #f7f7f7;
   border-top: 0.5px solid rgba(0, 0, 0, 0.08);
+  border-bottom: none !important;
+  box-shadow: none !important;
   position: relative;
   width: 100%;
   box-sizing: border-box;
 }
 
-/* 微信输入框：单一圆角矩形输入框（无双层外框嵌套） */
+/* 面板展开时无缝衔接，绝无脏阴影 */
+.chat-wechat-bar-container + .chat-plus-menu,
+.chat-wechat-bar-container + .emoji-panel,
+.chat-wechat-bar-container + .sticker-panel,
+.chat-wechat-bar-container ~ .chat-plus-menu,
+.chat-wechat-bar-container ~ .emoji-panel,
+.chat-wechat-bar-container ~ .sticker-panel {
+  box-shadow: none !important;
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06) !important;
+  background: #f7f7f7 !important;
+}
+
+/* 微信输入框：单一圆角矩形嵌入框 */
 .chat-wechat-input-box {
   flex: 1;
   position: relative;
@@ -7308,7 +7311,6 @@
   max-height: 120px;
 }
 
-/* 输入框内嵌装饰麦克风（输入文字时平滑渐隐） */
 .chat-wechat-mic-deco {
   position: absolute;
   right: 8px;
@@ -7326,13 +7328,13 @@
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   padding: 8px 14px;
-  background: rgba(40, 40, 40, 0.94);
+  background: rgba(35, 35, 35, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
   animation: wechat-popover-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -7350,12 +7352,56 @@
 .chat-wechat-popover-arrow {
   position: absolute;
   top: 100%;
-  left: 16px;
+  left: 18px;
   width: 0;
   height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top: 6px solid rgba(40, 40, 40, 0.94);
+  border-top: 6px solid rgba(35, 35, 35, 0.94);
+}
+
+/* 微信工具箱左右横滑分页模式 (Paged) */
+.chat-plus-menu-paged-wrap {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.chat-plus-menu-paged-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-plus-menu-paged-page {
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px 6px;
+  padding: 12px 14px;
+  box-sizing: border-box;
+}
+
+.chat-plus-menu-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 0 8px;
+}
+.chat-plus-menu-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+.chat-plus-menu-dot.is-active {
+  width: 14px;
+  background: rgba(0, 0, 0, 0.55);
 }
 
 @keyframes wechat-popover-fade-in {
