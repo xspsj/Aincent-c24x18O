@@ -165,6 +165,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [notifChecking, setNotifChecking] = useState(false);
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
+    const [chatInputBarStyle, setChatInputBarStyle] = useState<"default" | "wechat">("default");
+    const [plusMenuLayoutStyle, setPlusMenuLayoutStyle] = useState<"vertical" | "paged">("vertical");
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
     const [walletSummary, setWalletSummary] = useState(() => {
@@ -181,6 +183,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         const browserGranted = isBrowserNotificationGranted();
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
+        setChatInputBarStyle(settings.chatInputBarStyle === "wechat" ? "wechat" : "default");
+        setPlusMenuLayoutStyle(settings.plusMenuLayoutStyle === "paged" ? "paged" : "vertical");
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
             setNotifHint(readBrowserNotificationPermissionHint());
@@ -247,6 +251,16 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const handleEnterToSendToggle = (enabled: boolean) => {
         setEnterToSendEnabled(enabled);
         saveChatAppSettings({ ...loadChatAppSettings(), enterToSendEnabled: enabled });
+    };
+
+    const handleChatInputBarStyleChange = (style: "default" | "wechat") => {
+        setChatInputBarStyle(style);
+        saveChatAppSettings({ ...loadChatAppSettings(), chatInputBarStyle: style });
+    };
+
+    const handlePlusMenuLayoutStyleChange = (style: "vertical" | "paged") => {
+        setPlusMenuLayoutStyle(style);
+        saveChatAppSettings({ ...loadChatAppSettings(), plusMenuLayoutStyle: style });
     };
 
     const handleCallVibrationToggle = (enabled: boolean) => {
@@ -447,6 +461,38 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">开启后 Enter 发送，Shift+Enter 换行</span>
                             </div>
                             <Toggle checked={enterToSendEnabled} onChange={handleEnterToSendToggle} />
+                        </div>
+
+                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                            <SlidersHorizontal size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">输入栏样式</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">切换默认横排工具栏或微信风格单行工具栏</span>
+                            </div>
+                            <select
+                                className="border-none outline-none ts-13 text-[var(--c-text)] bg-transparent cursor-pointer text-right"
+                                value={chatInputBarStyle}
+                                onChange={e => handleChatInputBarStyleChange(e.target.value as "default" | "wechat")}
+                            >
+                                <option value="default">默认原生横排</option>
+                                <option value="wechat">微信风格单行</option>
+                            </select>
+                        </div>
+
+                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                            <SlidersHorizontal size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">工具箱排版样式</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">加号多功能面板滚动排版</span>
+                            </div>
+                            <select
+                                className="border-none outline-none ts-13 text-[var(--c-text)] bg-transparent cursor-pointer text-right"
+                                value={plusMenuLayoutStyle}
+                                onChange={e => handlePlusMenuLayoutStyleChange(e.target.value as "vertical" | "paged")}
+                            >
+                                <option value="vertical">上下纵向滚动</option>
+                                <option value="paged">左右分页横滑</option>
+                            </select>
                         </div>
 
                         <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">

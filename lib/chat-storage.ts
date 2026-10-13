@@ -271,6 +271,8 @@ export type ChatAppSettings = {
     quickActionEnabled?: boolean; // When true, show the floating quick action entry
     browserNotificationsEnabled?: boolean; // When true, send browser Notification API alerts when page is hidden
     enterToSendEnabled?: boolean; // When true, Enter sends chat input and Shift+Enter inserts a newline
+    chatInputBarStyle?: "default" | "wechat"; // 聊天底栏输入框样式（default: 原生横排工具栏；wechat: 微信单行工具栏）
+    plusMenuLayoutStyle?: "vertical" | "paged"; // 加号工具箱排版（vertical: 上下滚动；paged: 左右分页横滑）
     callVibrationEnabled?: boolean; // 语音/视频来电等待接听时循环振动（默认开；iOS 网页不支持振动则无效果）
     maxToolRounds?: number; // 单条消息的工具循环轮数上限（默认 5；每轮=一次模型请求，轮内调用条数不限）
     floatingDockEnabled?: boolean; // 悬浮球贴边半隐藏收拢模式（默认关）
@@ -555,6 +557,8 @@ const DEFAULT_CHAT_APP_SETTINGS: ChatAppSettings = {
     promptViewerEnabled: false,
     quickActionEnabled: false,
     enterToSendEnabled: false,
+    chatInputBarStyle: "default",
+    plusMenuLayoutStyle: "vertical",
     floatingDockEnabled: false,
 };
 
