@@ -785,7 +785,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             {wechatMode ? (
                 /* 微信风格单行工具栏 (wechatMode) */
                 <div className="chat-wechat-bar-container">
-                    {/* 左侧收纳气泡浮层 */}
+                    {/* 左侧收纳气泡浮层：只放 [线下模式]、[Emoji]、[工具箱] */}
                     {showWechatVoiceMenu && (
                         <div className="chat-wechat-popover">
                             <div className="chat-wechat-popover-item" onClick={() => { onToggleOfflineMode(); setShowWechatVoiceMenu(false); }}>
@@ -796,26 +796,15 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
                                 <span>Emoji</span>
                             </div>
-                            <div className="chat-wechat-popover-item" onClick={() => {
-                                const trimmed = inputText.trim();
-                                if (!inputLocked && trimmed) {
-                                    if (onSendText(trimmed, { autoReply: true })) {
-                                        setInputText("");
-                                        resetTextareaHeight();
-                                    }
-                                } else {
-                                    onTriggerAIResponse();
-                                }
-                                setShowWechatVoiceMenu(false);
-                            }}>
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-                                <span>触发AI</span>
+                            <div className="chat-wechat-popover-item" onClick={() => { onTogglePlusMenu(); setShowWechatVoiceMenu(false); }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
+                                <span>工具箱</span>
                             </div>
                             <div className="chat-wechat-popover-arrow" />
                         </div>
                     )}
 
-                    {/* 左一：发声波图标（图三特写：外黑圈 + 偏左实心三角扇形 + 两道粗弧声波） */}
+                    {/* 左一：发声波图标（1:1严格还原图三：外黑圈 + 偏左实心三角形 + 2道舒展粗弧声波） */}
                     <button
                         type="button"
                         onClick={() => setShowWechatVoiceMenu(!showWechatVoiceMenu)}
@@ -823,17 +812,17 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         aria-label="收纳菜单"
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
-                            {/* 实心小发声扇形 */}
-                            <path d="M9.5 14L12.5 11.5V16.5L9.5 14Z" fill="#111111" />
-                            {/* 第一道粗声波弧线 */}
-                            <path d="M14.5 11.5C15.8 12.3 16.5 13.1 16.5 14C16.5 14.9 15.8 15.7 14.5 16.5" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
-                            {/* 第二道粗声波弧线 */}
-                            <path d="M17.5 9.5C19.8 10.8 20.8 12.3 20.8 14C20.8 15.7 19.8 17.2 17.5 18.5" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
+                            {/* 偏左实心小三角 */}
+                            <path d="M8.2 14L11.8 11.2V16.8L8.2 14Z" fill="#111111" />
+                            {/* 第一道粗同心圆弧 */}
+                            <path d="M14.2 10.8C15.8 11.8 16.6 12.8 16.6 14C16.6 15.2 15.8 16.2 14.2 17.2" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
+                            {/* 第二道粗同心圆弧 */}
+                            <path d="M17.4 8.6C19.8 10.2 20.8 12 20.8 14C20.8 16 19.8 17.8 17.4 19.4" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
                         </svg>
                     </button>
 
-                    {/* 中间：纯白内陷嵌入框 + 内嵌麦克风装饰 */}
+                    {/* 中间：纯净单一圆角输入框 + 内嵌麦克风装饰（打字时平滑渐隐） */}
                     <div className="chat-wechat-input-box">
                         <textarea
                             ref={textareaRef}
@@ -871,7 +860,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
                                 : (theaterMode ? "写下番外指令..." : undefined)}
                         />
-                        {/* 装饰麦克风（打字时平滑渐隐） */}
+                        {/* 装饰麦克风（打字时渐隐） */}
                         <div
                             className="chat-wechat-mic-deco"
                             style={{ opacity: inputText.length > 0 ? 0 : 0.45 }}
@@ -885,35 +874,57 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         </div>
                     </div>
 
-                    {/* 右一：经典大眼大笑脸表情（图四特写：外黑圈 + 双实心圆眼 + 半月牙微笑弧） */}
+                    {/* 右一：微信呆萌大圆脸笑脸（1:1严格还原图四：外黑圈 + 聚拢实心双圆眼 + 大开弧微笑嘴） */}
                     <button
                         type="button"
                         onClick={onToggleStickerPanel}
                         disabled={inputLocked}
                         className="ui-bare-btn flex-shrink-0"
-                        aria-label="表情"
+                        aria-label="表情贴纸"
                     >
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
-                            <circle cx="10" cy="11.5" r="1.5" fill="#111111" />
-                            <circle cx="18" cy="11.5" r="1.5" fill="#111111" />
-                            <path d="M9 16C9 18.8 11.2 21 14 21C16.8 21 19 18.8 19 16" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
+                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
+                            <circle cx="10.8" cy="11.2" r="1.6" fill="#111111" />
+                            <circle cx="17.2" cy="11.2" r="1.6" fill="#111111" />
+                            <path d="M8.8 15.2C9.5 18.6 11.5 20.6 14 20.6C16.5 20.6 18.5 18.6 19.2 15.2" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
                         </svg>
                     </button>
 
-                    {/* 右二：外圆圈十字加号（图五特写：外黑圈 + 匀称十字加号） */}
+                    {/* 右二：圆圈十字「+」（功能归位：直接触发 AI 回复 / 发送并触发回复） */}
                     <button
                         type="button"
-                        onClick={onTogglePlusMenu}
-                        disabled={inputLocked}
+                        onClick={() => {
+                            if (isGenerating) {
+                                onStopGeneration();
+                                return;
+                            }
+                            const trimmed = inputText.trim();
+                            if (!inputLocked && trimmed) {
+                                if (!onSendText(trimmed, { autoReply: true })) return;
+                                setInputText("");
+                                resetTextareaHeight();
+                            } else {
+                                onTriggerAIResponse();
+                            }
+                            onClosePanels();
+                        }}
+                        disabled={!isGenerating && inputLocked}
                         className="ui-bare-btn flex-shrink-0"
-                        aria-label="更多工具"
+                        aria-label={isGenerating ? "停止生成" : "触发 AI 回复"}
+                        title={isGenerating ? "停止生成" : (inputText.trim() ? "发送并触发回复" : "触发 AI 主动回复")}
                     >
-                        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                            <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.8" />
-                            <line x1="14" y1="8.5" x2="14" y2="19.5" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
-                            <line x1="8.5" y1="14" x2="19.5" y2="14" stroke="#111111" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
+                        {isGenerating ? (
+                            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                                <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
+                                <rect x="10" y="10" width="8" height="8" rx="1.5" fill="#111111" />
+                            </svg>
+                        ) : (
+                            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                                <circle cx="14" cy="14" r="12.5" stroke="#111111" strokeWidth="1.9" />
+                                <line x1="14" y1="8" x2="14" y2="20" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
+                                <line x1="8" y1="14" x2="20" y2="14" stroke="#111111" strokeWidth="2.1" strokeLinecap="round" />
+                            </svg>
+                        )}
                     </button>
                 </div>
             ) : (
