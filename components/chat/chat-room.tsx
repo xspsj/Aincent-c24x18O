@@ -6505,8 +6505,8 @@ function formatCallDurationDisplay(durationStr: string): string {
                 onStopGeneration={clearStuckGeneration}
                 onTriggerAIResponse={triggerAIResponse}
                 onSendSticker={(name, url) => { setShowStickerPanel(false); sendRichMessage("sticker", { label: name, stickerUrl: url }); }}
-                wechatMode={loadChatAppSettings().chatInputBarStyle === "wechat"}
             />
+            )}
 
             {showConfirmMultiDelete && (
                 <ConfirmDialog
