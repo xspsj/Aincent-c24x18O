@@ -738,6 +738,122 @@
   height: 24px;
 }
 
+/* ── 加号工具箱菜单面板 ── */
+.chat-plus-menu-container {
+  position: relative;
+  width: 100%;
+  margin-top: 10px;
+  padding-bottom: 6px;
+}
+
+/* 纵向滚动模式：严格限制展示 3 行高度，支持平滑惯性上下滚动 */
+.chat-plus-menu-vertical {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px 8px;
+  max-height: 258px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 2px;
+}
+
+/* 左右横滑模式：Scroll Snap 微信同款分页，每页固定 3 行 × 4 列 (12 项) */
+.chat-plus-menu-paged-viewport {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  width: 100%;
+  max-height: 258px;
+}
+.chat-plus-menu-paged-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-plus-menu-page {
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, auto);
+  gap: 14px 8px;
+  padding: 4px 2px;
+  box-sizing: border-box;
+}
+
+/* 工具箱单项样式 */
+.chat-plus-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.chat-plus-menu-item:active {
+  transform: scale(0.92);
+  opacity: 0.85;
+}
+
+.chat-plus-icon-box {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--c-card) 90%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--c-card-border) 40%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.chat-plus-menu-item[data-active] .chat-plus-icon-box {
+  background: color-mix(in srgb, var(--c-icon-active) 15%, transparent);
+  border-color: var(--c-icon-active);
+  color: var(--c-icon-active);
+}
+
+.chat-plus-custom-app-icon {
+  width: 30px;
+  height: 30px;
+  background-size: cover;
+  background-position: center;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* 分页小圆点指示器 */
+.chat-plus-dots-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0 2px;
+}
+
+.chat-plus-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-icon);
+  opacity: 0.3;
+  transition: all 0.2s ease;
+}
+
+.chat-plus-dot.active {
+  opacity: 0.95;
+  background: var(--c-icon-active);
+  width: 14px;
+  border-radius: 3px;
+}
+
 .chat-offline-toggle {
   position: relative;
 }
