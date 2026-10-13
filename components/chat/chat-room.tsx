@@ -608,8 +608,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGenerating: boolean;
     theaterMode: boolean;
     enterToSendEnabled: boolean;
-    chatInputBarStyle?: "default" | "wechat";
-    plusMenuLayoutStyle?: "vertical" | "paged";
+    wechatMode?: boolean;
+    pagedPlusMenu?: boolean;
     offlineMode?: boolean;
     quotingMessage: ChatMessage | null;
     showEmojiPanel: boolean;
@@ -642,8 +642,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGenerating,
     theaterMode,
     enterToSendEnabled,
-    chatInputBarStyle = "default",
-    plusMenuLayoutStyle = "vertical",
+    wechatMode = false,
+    pagedPlusMenu = false,
     offlineMode = false,
     quotingMessage,
     showEmojiPanel,
@@ -785,7 +785,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                     onClose={() => setSuggestClosed(true)}
                 />
             )}
-            {chatInputBarStyle === "wechat" ? (
+            {wechatMode ? (
                 /* ── 微信风格单行输入栏 ── */
                 <div className="chat-wechat-input-row relative flex items-center gap-2">
                     {/* 左侧：发声波图标（收纳浮层触发键） */}
@@ -793,16 +793,14 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         <button
                             type="button"
                             onClick={() => {
-                                setShowWechatVoiceMenu(!showWechatVoiceMenu);
                                 setShowEmojiPanel(false);
                                 setShowStickerPanel(false);
-                                setShowPlusMenu(false);
+                                setShowPlusMenu(!showPlusMenu);
                             }}
                             className="chat-wechat-btn"
                             aria-label="收纳工具箱"
                             title="收纳工具箱"
                         >
-                            {/* 微信实机发声波图标 */}
                             <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                                 <circle cx="14" cy="14" r="11" />
                                 <path d="M10.2 14c0-.9.4-1.7 1-2.2" />
@@ -811,65 +809,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 <circle cx="10" cy="14" r="0.8" fill="currentColor" />
                             </svg>
                         </button>
-
-                        {/* 轻量收纳毛玻璃气泡浮层 */}
-                        {showWechatVoiceMenu && (
-                            <div className="chat-wechat-popover-menu absolute bottom-full mb-3 left-0 z-30 flex items-center gap-3 px-3 py-2 rounded-2xl shadow-xl backdrop-blur-md">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        onToggleOfflineMode();
-                                        setShowWechatVoiceMenu(false);
-                                    }}
-                                    className="flex flex-col items-center gap-1 text-[var(--c-text)] hover:opacity-80 transition-opacity"
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z" />
-                                            <circle cx="12" cy="10" r="3" />
-                                        </svg>
-                                    </div>
-                                    <span className="ts-10 leading-none whitespace-nowrap">{offlineMode ? "切回线上" : "切到线下"}</span>
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowWechatVoiceMenu(false);
-                                        onToggleEmojiPanel();
-                                    }}
-                                    disabled={inputLocked}
-                                    className="flex flex-col items-center gap-1 text-[var(--c-text)] hover:opacity-80 transition-opacity"
-                                    style={inputLocked ? { opacity: 0.35 } : undefined}
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" />
-                                        </svg>
-                                    </div>
-                                    <span className="ts-10 leading-none whitespace-nowrap">Emoji</span>
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowWechatVoiceMenu(false);
-                                        onTogglePlusMenu();
-                                    }}
-                                    disabled={inputLocked}
-                                    className="flex flex-col items-center gap-1 text-[var(--c-text)] hover:opacity-80 transition-opacity"
-                                    style={inputLocked ? { opacity: 0.35 } : undefined}
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" />
-                                        </svg>
-                                    </div>
-                                    <span className="ts-10 leading-none whitespace-nowrap">工具箱</span>
-                                </button>
-                                <div className="chat-wechat-popover-triangle" />
-                            </div>
-                        )}
                     </div>
 
                     {/* 中间：输入框 + 内嵌麦克风装饰图标 */}
@@ -887,7 +826,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                             onFocus={(e) => {
                                 if (panelOpen) {
                                     e.target.blur();
-                                    setShowWechatVoiceMenu(false);
                                     onClosePanels();
                                     const target = e.target as HTMLTextAreaElement;
                                     requestAnimationFrame(() => requestAnimationFrame(() => target.focus()));
@@ -930,17 +868,13 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                     {/* 右侧一：表情贴纸图标 */}
                     <button
                         type="button"
-                        onClick={() => {
-                            setShowWechatVoiceMenu(false);
-                            onToggleStickerPanel();
-                        }}
+                        onClick={onToggleStickerPanel}
                         disabled={inputLocked}
                         className="chat-wechat-btn shrink-0"
                         style={inputLocked ? { opacity: 0.35 } : undefined}
                         aria-label="表情贴纸"
                         title="表情贴纸"
                     >
-                        {/* 微信实机大笑脸图标 */}
                         <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="14" cy="14" r="11" />
                             <path d="M9.5 15.5c.8 2 2.5 3.5 4.5 3.5s3.7-1.5 4.5-3.5" />
@@ -965,7 +899,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                             } else {
                                 onTriggerAIResponse();
                             }
-                            setShowWechatVoiceMenu(false);
                             onClosePanels();
                         }}
                         className="chat-wechat-btn shrink-0"
@@ -1070,8 +1003,6 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                 title={!inputLocked && inputText.trim() ? "发送输入框内容并触发回复" : "触发 AI 主动回复"}
                                 onClick={() => {
                                     const trimmed = inputText.trim();
-                                    // 输入框已有文字：发送输入框内容并立即触发模型回复（一次按键完成），
-                                    // 避免「打完字却忘记发送」；没文字时才只触发 AI 主动回复
                                     if (!inputLocked && trimmed) {
                                         if (!onSendText(trimmed, { autoReply: true })) return;
                                         setInputText("");
@@ -1093,20 +1024,16 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             )}
 
             {showPlusMenu && (
-                plusMenuLayoutStyle === "paged" ? (
-                    <PlusMenuPaged items={plusMenuItems} />
-                ) : (
-                    <div className="chat-plus-menu chat-plus-menu-vertical">
-                        {plusMenuItems.map((item, i) => (
-                            <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
-                                <div className="chat-plus-icon-box">
-                                    {item.icon}
-                                </div>
-                                <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                <div className="chat-plus-menu">
+                    {plusMenuItems.map((item, i) => (
+                        <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
+                            <div className="chat-plus-icon-box">
+                                {item.icon}
                             </div>
-                        ))}
-                    </div>
-                )
+                            <span className="ts-11 text-[var(--c-text)]">{item.label}</span>
+                        </div>
+                    ))}
+                </div>
             )}
             {showPlusMenu && (
                 <ChatPluginSlot name="chat.inputToolbar" slotProps={{ isGroup }} className="chat-plugin-input-toolbar" />
@@ -1344,14 +1271,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [callInitiatorName, setCallInitiatorName] = useState<string>("");
     const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(() => loadChatAppSettings().enterToSendEnabled === true);
-    const [chatInputBarStyle, setChatInputBarStyle] = useState<"default" | "wechat">(() => {
-        const s = loadChatAppSettings();
-        return s.wechatInputBarEnabled === true || s.chatInputBarStyle === "wechat" ? "wechat" : "default";
-    });
-    const [plusMenuLayoutStyle, setPlusMenuLayoutStyle] = useState<"vertical" | "paged">(() => {
-        const s = loadChatAppSettings();
-        return s.pagedPlusMenuEnabled === true || s.plusMenuLayoutStyle === "paged" ? "paged" : "vertical";
-    });
+    const [wechatMode, setWechatMode] = useState(() => loadChatAppSettings().wechatInputBarEnabled === true);
+    const [pagedPlusMenu, setPagedPlusMenu] = useState(() => loadChatAppSettings().pagedPlusMenuEnabled === true);
 
     // Rich media input modals
     const [richModal, setRichModal] = useState<RichModalKind | null>(null);
@@ -1370,8 +1291,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         const syncEnterToSend = () => {
             const settings = loadChatAppSettings();
             setEnterToSendEnabled(settings.enterToSendEnabled === true);
-            setChatInputBarStyle(settings.wechatInputBarEnabled === true || settings.chatInputBarStyle === "wechat" ? "wechat" : "default");
-            setPlusMenuLayoutStyle(settings.pagedPlusMenuEnabled === true || settings.plusMenuLayoutStyle === "paged" ? "paged" : "vertical");
+            setWechatMode(settings.wechatInputBarEnabled === true);
+            setPagedPlusMenu(settings.pagedPlusMenuEnabled === true);
         };
         window.addEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncEnterToSend);
         return () => window.removeEventListener(CHAT_APP_SETTINGS_UPDATED_EVENT, syncEnterToSend);
@@ -6554,8 +6475,8 @@ function formatCallDurationDisplay(durationStr: string): string {
 	                isGenerating={isGenerating}
 	                theaterMode={theaterMode}
 	                enterToSendEnabled={enterToSendEnabled}
-	                chatInputBarStyle={chatInputBarStyle}
-	                plusMenuLayoutStyle={plusMenuLayoutStyle}
+	                wechatMode={wechatMode}
+	                pagedPlusMenu={pagedPlusMenu}
 	                offlineMode={offlineMode}
 	                quotingMessage={quotingMessage}
                 showEmojiPanel={showEmojiPanel}
