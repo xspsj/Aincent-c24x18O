@@ -166,6 +166,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
+    const [plusMenuLayoutStyle, setPlusMenuLayoutStyle] = useState<"vertical" | "paged">("vertical");
     const [userStats, setUserStats] = useState({ chats: 0, moments: 0, visitors: 1234 });
     const [walletSummary, setWalletSummary] = useState(() => {
         const wallet = loadWalletState();
@@ -182,6 +183,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
+        setPlusMenuLayoutStyle(settings.plusMenuLayoutStyle || "vertical");
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
             setNotifHint(readBrowserNotificationPermissionHint());
         }
@@ -214,6 +216,13 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         window.addEventListener(WALLET_UPDATED_EVENT, syncWallet);
         return () => window.removeEventListener(WALLET_UPDATED_EVENT, syncWallet);
     }, []);
+
+    const handlePlusMenuLayoutToggle = (enabled: boolean) => {
+        const mode = enabled ? "paged" : "vertical";
+        setPlusMenuLayoutStyle(mode);
+        const current = loadChatAppSettings();
+        saveChatAppSettings({ ...current, plusMenuLayoutStyle: mode });
+    };
 
     const handleNotificationToggle = async (enabled: boolean) => {
         if (notifChecking) return;
@@ -447,6 +456,15 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">开启后 Enter 发送，Shift+Enter 换行</span>
                             </div>
                             <Toggle checked={enterToSendEnabled} onChange={handleEnterToSendToggle} />
+                        </div>
+
+                        <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+                            <SlidersHorizontal size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">工具箱横向分页</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">开启后加号工具箱按3行12格左右滑动（微信同款）</span>
+                            </div>
+                            <Toggle checked={plusMenuLayoutStyle === "paged"} onChange={handlePlusMenuLayoutToggle} />
                         </div>
 
                         <div className="flex items-center gap-3 py-3 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
