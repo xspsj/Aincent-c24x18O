@@ -23,6 +23,15 @@ const EFFECT_DURATION_MS: Record<ChatScreenEffectType, number> = {
     hearts: 4200,
     bomb: 2800,
     dice: 3200,
+    snow: 4500,
+    rain: 4200,
+    thunderstorm: 4200,
+    shooting_star: 4800,
+    autumn_leaves: 4500,
+    bubbles: 4500,
+    fireflies: 4500,
+    sunbeam: 4200,
+    sakura: 4500,
 };
 
 const EMOJI_RAIN_COUNT = 32;

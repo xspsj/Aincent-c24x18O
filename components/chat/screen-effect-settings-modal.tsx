@@ -104,7 +104,7 @@ export function ScreenEffectSettingsModal({ onClose }: { onClose: () => void }) 
                         </>
                     ) : (
                         <>
-                            <p className="screen-fx-note">在表情面板「特效」栏点击发送，或单独发一条只含图标的消息触发；图标夹在文字里不触发</p>
+                            <p className="screen-fx-note">支持消息包含关键词或图标自动播放；炸弹与骰子需单独发送图标</p>
                             {BUILTIN_SCREEN_EFFECTS.map(effect => (
                                 <div key={effect.type} className="screen-fx-card" {...(builtins[effect.type].enabled ? { "data-enabled": "" } : {})}>
                                     <div className="screen-fx-card-row">
