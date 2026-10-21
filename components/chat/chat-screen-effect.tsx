@@ -6,6 +6,7 @@
 import { useEffect, useMemo, type CSSProperties } from "react";
 import type { ChatScreenEffectType } from "@/lib/chat-screen-effects";
 import { FireworksCanvas, FIREWORKS_DURATION_MS } from "./chat-screen-fireworks";
+import { SnowCanvas, RainCanvas, ThunderstormCanvas } from "./chat-screen-weather";
 
 export type ActiveScreenEffect = {
     /** 每次触发唯一，作为 key 强制重建粒子 */
@@ -23,15 +24,6 @@ const EFFECT_DURATION_MS: Record<ChatScreenEffectType, number> = {
     hearts: 4200,
     bomb: 2800,
     dice: 3200,
-    snow: 4500,
-    rain: 4200,
-    thunderstorm: 4200,
-    shooting_star: 4800,
-    autumn_leaves: 4500,
-    bubbles: 4500,
-    fireflies: 4500,
-    sunbeam: 4200,
-    sakura: 4500,
 };
 
 const EMOJI_RAIN_COUNT = 32;
@@ -142,6 +134,7 @@ type EffectParticles = {
     hearts?: { char: string; style: ParticleStyle }[];
     bombSparks?: { char: string; style: ParticleStyle }[];
     diceFace?: number;
+    weatherType?: "snow" | "rain" | "thunderstorm";
 };
 
 function buildParticles(effect: ChatScreenEffectType, emojis: string, diceFace?: number): EffectParticles {
@@ -151,6 +144,11 @@ function buildParticles(effect: ChatScreenEffectType, emojis: string, diceFace?:
         case "hearts": return { hearts: heartParticles() };
         case "bomb": return { bombSparks: bombSparks() };
         case "dice": return { diceFace: diceFace ?? 1 + Math.floor(Math.random() * 6) };
+        // 天气类 Canvas：直接走渲染层挂载，particles 仅作标志
+        case "snow": return { weatherType: "snow" };
+        case "rain": return { weatherType: "rain" };
+        case "thunderstorm": return { weatherType: "thunderstorm" };
+        // 待实现特效：返回空对象（不渲染、不崩溃）
         default: return { rain: emojiRainParticles(emojis) };
     }
 }
@@ -183,6 +181,15 @@ export function ChatScreenEffectOverlay({ active, onDone }: {
             {particles.confetti?.map((p, i) => (
                 <span key={i} className="chat-screen-fx-confetti" style={{ ...p.style, backgroundColor: p.color }} />
             ))}
+            {particles.weatherType === "snow" && (
+                <SnowCanvas duration={EFFECT_DURATION_MS.snow} />
+            )}
+            {particles.weatherType === "rain" && (
+                <RainCanvas duration={EFFECT_DURATION_MS.rain} />
+            )}
+            {particles.weatherType === "thunderstorm" && (
+                <ThunderstormCanvas duration={EFFECT_DURATION_MS.thunderstorm} />
+            )}
             {particles.fireworks && (
                 <>
                     <span className="chat-screen-fx-night" />
