@@ -2,15 +2,11 @@
 
 // 光效系全屏特效 Canvas 渲染器：流星 / 晨曦微光。
 //
-// 流星重做：
-//   - 移动亮点 + 半透明覆盖衰减产生拖尾（头亮尾淡，物理正确）
-//   - 从右上往左下（110°~135°），不横着跑
-//   - 3~5 颗，随机延时错落出场
-//   - 65% 普通流星雨 / 35% 火流星场（1颗主星+2~3颗陪衬）
-//   - 多色流星：70% 冷白蓝白，30% 偶发彩色
-//   - 背景极低透明度深蓝，完全看得清聊天内容
-//
-// 晨曦微光：梯形光柱 + 线性渐变，稳定版
+// 流星 v5：
+//   - 位置历史数组 → 连续渐变线段彗尾，头亮尾透明，不再是串珠
+//   - clearRect 每帧清屏，背景只画一次极淡覆盖（不累积变黑）
+//   - 速度放慢，颗数 5~8 颗，错落延时
+//   - 65% 普通 / 35% 火流星（1颗主星末段碎星）
 
 import { useEffect, useRef } from "react";
 
@@ -20,23 +16,19 @@ function envAlpha(elapsed: number, duration: number, fadeIn: number, fadeOut: nu
     return 1;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// ── 流星 ──────────────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════
-
-// 流星色相池：70% 冷白系，30% 彩色
+// ── 流星色相池 ────────────────────────────────────────────────────
 const COMMON_COLORS: [number, number, number][] = [
-    [210, 18, 97],   // 蓝白
-    [200, 12, 99],   // 纯白偏蓝
-    [50,  28, 96],   // 淡黄白
-    [220, 22, 95],   // 冷白
+    [210, 18, 97],
+    [200, 12, 99],
+    [50,  28, 96],
+    [220, 22, 95],
 ];
 const RARE_COLORS: [number, number, number][] = [
-    [142, 62, 76],   // 绿（镍/铜）
-    [32,  70, 74],   // 橙（钠）
-    [185, 68, 80],   // 青（铜）
-    [268, 55, 80],   // 紫（钙）
-    [0,   65, 74],   // 红橙
+    [142, 62, 76],
+    [32,  70, 74],
+    [185, 68, 80],
+    [268, 55, 80],
+    [0,   65, 74],
 ];
 function pickColor(): [number, number, number] {
     return Math.random() < 0.70
@@ -45,45 +37,51 @@ function pickColor(): [number, number, number] {
 }
 
 type MeteorParticle = {
-    x: number; y: number;       // 当前亮点位置
-    vx: number; vy: number;     // 每帧移动量
+    x: number; y: number;
+    vx: number; vy: number;
+    trail: { x: number; y: number }[];   // 位置历史
+    maxTrailLen: number;                  // 历史最大长度 = 彗尾长度（帧数）
     hue: number; sat: number; light: number;
-    coreR: number;              // 白热内核半径
-    glowR: number;              // 柔光晕半径
-    alpha: number;              // 峰值透明度
-    delay: number;              // 出场延时 ms
+    coreR: number;     // 头部亮核半径
+    glowR: number;     // 头部光晕半径
+    alpha: number;
+    delay: number;
     life: number; maxLife: number;
-    isBolide: boolean;          // 是否为火流星主星
-    active: boolean;            // 是否已入场
+    isBolide: boolean;
+    started: boolean;
 };
 
 function makeMeteor(W: number, H: number, scale: number, isBolide = false): MeteorParticle {
-    // 从右上区域入场，方向从右上往左下（110°~135°）
-    const startX = W * (0.30 + Math.random() * 0.70);   // 右侧 30%~100%
-    const startY = H * (Math.random() * 0.38);            // 上方 0~38%
-    // 角度：110°~135°（从右上往左下），弧度换算
+    // 起点：铺满屏幕上方，从右上往左下（110°~135°）
+    const startX = W * (0.10 + Math.random() * 0.85);
+    const startY = H * (Math.random() * 0.45);
     const angleDeg = 110 + Math.random() * 25;
     const angle = (angleDeg * Math.PI) / 180;
-    const speed = isBolide ? (14 + Math.random() * 8) * scale : (10 + Math.random() * 8) * scale;
-    const life = isBolide ? 55 + Math.random() * 20 : 40 + Math.random() * 22;
+    // 速度放慢：普通 5~8，火流星 9~12
+    const speed = isBolide ? (9 + Math.random() * 3) * scale : (5 + Math.random() * 3) * scale;
+    // 寿命足够长，让流星完整划过
+    const life = isBolide ? 80 + Math.random() * 30 : 60 + Math.random() * 30;
     const [hue, sat, light] = pickColor();
-    const coreR = isBolide ? (3.5 + Math.random() * 2.0) * scale : (1.8 + Math.random() * 1.2) * scale;
+    const coreR = isBolide ? (2.8 + Math.random() * 1.5) * scale : (1.4 + Math.random() * 1.0) * scale;
+    // 彗尾历史帧数：普通 22~30帧，火流星 28~38帧
+    const maxTrailLen = isBolide ? 28 + Math.floor(Math.random() * 10) : 18 + Math.floor(Math.random() * 12);
     return {
         x: startX, y: startY,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
+        trail: [],
+        maxTrailLen,
         hue, sat, light,
         coreR,
-        glowR: coreR * (isBolide ? 5.5 : 4.2),
-        alpha: isBolide ? 1.0 : 0.72 + Math.random() * 0.28,
+        glowR: coreR * 3.5,
+        alpha: isBolide ? 0.96 : 0.70 + Math.random() * 0.26,
         delay: 0,
         life, maxLife: life,
         isBolide,
-        active: false,
+        started: false,
     };
 }
 
-// 碎星粒子（火流星末段爆出）
 type Fragment = {
     x: number; y: number;
     vx: number; vy: number;
@@ -109,24 +107,22 @@ export function ShootingStarCanvas({ duration }: { duration: number }) {
         const scale = H / 800;
 
         // 概率分级
-        const isBolideMode = Math.random() < 0.35;  // 35% 火流星场
+        const isBolideMode = Math.random() < 0.35;
+        // 颗数：5~8 颗普通 / 火流星模式 4~6 普通 + 1 主星
         const count = isBolideMode
-            ? 2 + Math.floor(Math.random() * 2)      // 火流星场：2~3 颗普通 + 1 颗主星
-            : 3 + Math.floor(Math.random() * 3);     // 普通流星雨：3~5 颗
+            ? 4 + Math.floor(Math.random() * 3)
+            : 5 + Math.floor(Math.random() * 4);
 
         const meteors: MeteorParticle[] = Array.from({ length: count }, (_, i) => ({
             ...makeMeteor(W, H, scale, false),
-            // 错落延时：第一颗 0~400ms，后续每颗间隔 600~1400ms
-            delay: i === 0
-                ? Math.random() * 400
-                : 400 + i * (600 + Math.random() * 800),
+            // 错落延时：0~3.5 秒内分散出场
+            delay: i * (350 + Math.random() * 500) + Math.random() * 200,
         }));
 
-        // 火流星主星（最后出场，最亮最大）
         if (isBolideMode) {
             meteors.push({
                 ...makeMeteor(W, H, scale, true),
-                delay: 300 + Math.random() * 600,
+                delay: 500 + Math.random() * 800,
             });
         }
 
@@ -135,8 +131,11 @@ export function ShootingStarCanvas({ duration }: { duration: number }) {
         let raf = 0;
         let last = performance.now();
         const startAt = last;
-        const FADE_IN = 300;
-        const FADE_OUT = 800;
+        const FADE_IN = 400;
+        const FADE_OUT = 1000;
+
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
 
         const loop = (now: number) => {
             const dt = Math.min(2.2, (now - last) / 16.7);
@@ -144,78 +143,91 @@ export function ShootingStarCanvas({ duration }: { duration: number }) {
             const elapsed = now - startAt;
             const env = envAlpha(elapsed, duration, FADE_IN, FADE_OUT);
 
-            // ── 背景：极低透明度深蓝，每帧叠加营造入夜感 ──
-            // 不清画布！用半透明覆盖让前帧亮迹自然衰减 → 产生拖尾
-            ctx.globalCompositeOperation = "source-over";
-            ctx.fillStyle = `rgba(4, 9, 26, ${0.06 * env})`;
+            // 每帧清屏，不累积背景
+            ctx.clearRect(0, 0, W, H);
+
+            // 极淡深蓝夜空覆盖（只画一次，不叠加，聊天内容完全可见）
+            ctx.fillStyle = `rgba(4, 9, 26, ${0.10 * env})`;
             ctx.fillRect(0, 0, W, H);
 
-            // ── 拖尾衰减层：盖一层半透明黑，让亮迹逐渐消隐 ──
-            // 透明度 0.18：约 5~6 帧后亮迹衰减到不可见，彗尾长度自然合适
-            ctx.fillStyle = `rgba(0, 0, 0, ${0.18 * env})`;
-            ctx.fillRect(0, 0, W, H);
-
-            // ── 流星亮点渲染 ──
+            // ── 流星渲染 ──
             for (const m of meteors) {
                 if (elapsed < m.delay) continue;
-                if (!m.active) m.active = true;
+                if (!m.started) m.started = true;
 
+                // 更新位置，push 进历史
                 m.x += m.vx * dt;
                 m.y += m.vy * dt;
                 m.life -= dt;
 
-                // 飞出屏幕或寿命耗尽
-                if (m.life <= 0 || m.x < -80 || m.y > H + 80) continue;
+                m.trail.push({ x: m.x, y: m.y });
+                if (m.trail.length > m.maxTrailLen) m.trail.shift();
 
+                if (m.life <= 0 || m.x < -100 || m.y > H + 100) continue;
+                if (m.trail.length < 2) continue;
+
+                // 整体生命周期透明度包络（淡入 10 帧 + 淡出末 25%）
                 const lt = m.life / m.maxLife;
-                // 淡入（前 8 帧）+ 淡出（末 20% 寿命）
-                const fadeIn = Math.min(1, (m.maxLife - m.life) / 8);
-                const alpha = m.alpha * fadeIn * Math.min(1, lt * 3.5) * env;
-                if (alpha <= 0.01) continue;
+                const fadeIn = Math.min(1, (m.maxLife - m.life) / 10);
+                const envAlphaM = m.alpha * fadeIn * Math.min(1, lt * 4) * env;
+                if (envAlphaM <= 0.01) continue;
 
-                // 第 1 层：外圈漫射光晕（最大最淡）
-                const outerR = m.glowR * 1.8;
-                const outerGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, outerR);
-                outerGrad.addColorStop(0,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.18})`);
-                outerGrad.addColorStop(0.5,  `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.06})`);
-                outerGrad.addColorStop(1,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
-                ctx.fillStyle = outerGrad;
-                ctx.beginPath();
-                ctx.arc(m.x, m.y, outerR, 0, Math.PI * 2);
-                ctx.fill();
+                // ── 彗尾：连续渐变线段 ──
+                // 从尾（最老）到头（最新），alpha 从 0 线性增至 envAlphaM
+                const trailLen = m.trail.length;
+                for (let i = 1; i < trailLen; i++) {
+                    const prev = m.trail[i - 1];
+                    const curr = m.trail[i];
+                    // i/trailLen：越靠近头部（i 越大）alpha 越高
+                    const segRatio = i / trailLen;
+                    const segAlpha = envAlphaM * (segRatio * segRatio); // 二次曲线：尾端衰减更自然
+                    if (segAlpha <= 0.008) continue;
 
-                // 第 2 层：中层柔光晕（带流星主色）
-                const glowGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.glowR);
-                glowGrad.addColorStop(0,    `hsla(${m.hue}, ${m.sat}%, ${Math.min(98, m.light + 5)}%, ${alpha * 0.65})`);
-                glowGrad.addColorStop(0.45, `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.28})`);
+                    // 线宽：头部稍粗，尾部细
+                    const lineW = m.coreR * 0.45 * segRatio + 0.4;
+                    ctx.strokeStyle = `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${segAlpha})`;
+                    ctx.lineWidth = lineW;
+                    ctx.beginPath();
+                    ctx.moveTo(prev.x, prev.y);
+                    ctx.lineTo(curr.x, curr.y);
+                    ctx.stroke();
+                }
+
+                // ── 头部：外圈柔光 + 白热内核 ──
+                const head = m.trail[trailLen - 1];
+
+                // 外圈柔光晕
+                const glowGrad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, m.glowR);
+                glowGrad.addColorStop(0,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${envAlphaM * 0.55})`);
+                glowGrad.addColorStop(0.5,  `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${envAlphaM * 0.18})`);
                 glowGrad.addColorStop(1,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
                 ctx.fillStyle = glowGrad;
                 ctx.beginPath();
-                ctx.arc(m.x, m.y, m.glowR, 0, Math.PI * 2);
+                ctx.arc(head.x, head.y, m.glowR, 0, Math.PI * 2);
                 ctx.fill();
 
-                // 第 3 层：白热内核（最小最亮）
-                const coreGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.coreR);
-                coreGrad.addColorStop(0,   `rgba(255, 255, 255, ${alpha})`);
-                coreGrad.addColorStop(0.6, `hsla(${m.hue}, ${m.sat}%, 92%, ${alpha * 0.75})`);
+                // 白热内核
+                const coreGrad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, m.coreR);
+                coreGrad.addColorStop(0,   `rgba(255, 255, 255, ${envAlphaM})`);
+                coreGrad.addColorStop(0.65, `hsla(${m.hue}, ${m.sat}%, 92%, ${envAlphaM * 0.7})`);
                 coreGrad.addColorStop(1,   `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
                 ctx.fillStyle = coreGrad;
                 ctx.beginPath();
-                ctx.arc(m.x, m.y, m.coreR, 0, Math.PI * 2);
+                ctx.arc(head.x, head.y, m.coreR, 0, Math.PI * 2);
                 ctx.fill();
 
-                // 火流星：末段爆出碎星粒子
-                if (m.isBolide && lt < 0.28 && fragments.length < 22 && Math.random() < 0.28) {
-                    const fragAngle = Math.random() * Math.PI * 2;
-                    const fragSpeed = (1.2 + Math.random() * 2.2) * scale;
-                    const fragLife = 14 + Math.random() * 12;
+                // 火流星末段碎星
+                if (m.isBolide && lt < 0.30 && fragments.length < 24 && Math.random() < 0.25) {
+                    const fAngle = Math.random() * Math.PI * 2;
+                    const fSpeed = (1.0 + Math.random() * 2.0) * scale;
+                    const fLife = 16 + Math.random() * 14;
                     fragments.push({
-                        x: m.x, y: m.y,
-                        vx: Math.cos(fragAngle) * fragSpeed,
-                        vy: Math.sin(fragAngle) * fragSpeed,
-                        life: fragLife, maxLife: fragLife,
+                        x: head.x, y: head.y,
+                        vx: Math.cos(fAngle) * fSpeed,
+                        vy: Math.sin(fAngle) * fSpeed,
+                        life: fLife, maxLife: fLife,
                         hue: m.hue, sat: m.sat,
-                        r: (0.8 + Math.random() * 1.0) * scale,
+                        r: (0.7 + Math.random() * 0.9) * scale,
                     });
                 }
             }
@@ -225,17 +237,17 @@ export function ShootingStarCanvas({ duration }: { duration: number }) {
                 const f = fragments[i];
                 f.x += f.vx * dt;
                 f.y += f.vy * dt;
-                f.vy += 0.03 * scale * dt;  // 微弱重力
+                f.vy += 0.025 * scale * dt;
                 f.life -= dt;
                 if (f.life <= 0) { fragments.splice(i, 1); continue; }
                 const ft = f.life / f.maxLife;
-                const fragGrad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 1.8);
-                fragGrad.addColorStop(0,   `rgba(255, 255, 255, ${0.9 * ft * env})`);
-                fragGrad.addColorStop(0.5, `hsla(${f.hue}, ${f.sat}%, 88%, ${0.5 * ft * env})`);
-                fragGrad.addColorStop(1,   `hsla(${f.hue}, ${f.sat}%, 80%, 0)`);
-                ctx.fillStyle = fragGrad;
+                const fGrad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 2.0);
+                fGrad.addColorStop(0,   `rgba(255, 255, 255, ${0.88 * ft * env})`);
+                fGrad.addColorStop(0.5, `hsla(${f.hue}, ${f.sat}%, 88%, ${0.45 * ft * env})`);
+                fGrad.addColorStop(1,   `hsla(${f.hue}, ${f.sat}%, 80%, 0)`);
+                ctx.fillStyle = fGrad;
                 ctx.beginPath();
-                ctx.arc(f.x, f.y, f.r * 1.8, 0, Math.PI * 2);
+                ctx.arc(f.x, f.y, f.r * 2.0, 0, Math.PI * 2);
                 ctx.fill();
             }
 
