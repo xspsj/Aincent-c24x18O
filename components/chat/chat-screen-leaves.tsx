@@ -1,9 +1,7 @@
 "use client";
 
 // 翻转飘落系全屏特效 Canvas 渲染器：落叶（秋）/ 落樱（春）。
-// 共享同一套「3D 模拟翻转 + 正弦风阻漂移 + 大气覆盖层 + 时间包络」架构。
-// 3D 翻转：用 ctx.scale(Math.cos(rotX), 1) 模拟叶片绕竖轴的视觉厚薄变化，
-// 再叠加 ctx.rotate(rotZ) 做平面内摇摆，两轴叠加出真实翻转感，零 GPU 开销。
+// 修复：初始 y 分散在全屏范围，确保下半屏也有粒子；叶片形状改用贝塞尔尖角叶形。
 
 import { useEffect, useRef } from "react";
 
@@ -16,23 +14,22 @@ function envAlpha(elapsed: number, duration: number, fadeIn: number, fadeOut: nu
 // ── 通用叶片粒子类型 ────────────────────────────────────────────────
 type Leaf = {
     x: number; y: number;
-    vx: number; vy: number;        // 基础速度
-    swayPhase: number;             // 正弦漂移初相
-    swayAmp: number;               // 漂移幅度
-    swayFreq: number;              // 漂移频率
-    rotX: number;                  // 绕竖轴旋转（0~2π，模拟厚薄）
-    rotZ: number;                  // 平面内摇摆角
-    rotXSpeed: number;             // 竖轴旋转速度
-    rotZSpeed: number;             // 平面摇摆速度
-    size: number;                  // 叶片长半轴
-    colorIdx: number;              // 颜色索引
+    vx: number; vy: number;
+    swayPhase: number;
+    swayAmp: number;
+    swayFreq: number;
+    rotX: number;
+    rotZ: number;
+    rotXSpeed: number;
+    rotZSpeed: number;
+    size: number;
+    colorIdx: number;
     maxAlpha: number;
 };
 
 // ── 落叶（Autumn Leaves） ──────────────────────────────────────────
-const LEAF_COUNT = 28;
+const LEAF_COUNT = 32;
 
-// 枫红 + 暖黄 + 橙褐色系
 const LEAF_COLORS = [
     "#c0392b", // 深枫红
     "#e74c3c", // 亮枫红
@@ -43,24 +40,42 @@ const LEAF_COLORS = [
 ];
 
 function drawAutumnLeaf(ctx: CanvasRenderingContext2D, size: number, color: string, alpha: number) {
-    // 简洁枫叶形状：两个相对的椭圆贝塞尔 + 叶茎
+    // 尖角叶形：两段对称贝塞尔，顶端和底端都是尖的
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
-    ctx.strokeStyle = `rgba(80, 30, 10, ${alpha * 0.35})`;
-    ctx.lineWidth = 0.6;
 
-    // 叶身：椭圆近似
     ctx.beginPath();
-    ctx.ellipse(0, 0, size, size * 0.58, 0, 0, Math.PI * 2);
+    // 从底部尖端出发 → 左弧 → 顶部尖端 → 右弧 → 回到底部
+    ctx.moveTo(0, size);                                         // 底尖
+    ctx.bezierCurveTo(-size * 0.8, size * 0.4, -size * 0.7, -size * 0.6, 0, -size); // 左侧弧
+    ctx.bezierCurveTo(size * 0.7, -size * 0.6, size * 0.8, size * 0.4, 0, size);    // 右侧弧
+    ctx.closePath();
     ctx.fill();
+
+    // 叶脉：中央主脉
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(0, 0, 0, ${alpha * 0.18})`;
+    ctx.lineWidth = size * 0.08;
+    ctx.moveTo(0, size * 0.9);
+    ctx.lineTo(0, -size * 0.9);
     ctx.stroke();
+
+    // 叶脉：两侧分支（3对）
+    ctx.lineWidth = size * 0.04;
+    ctx.strokeStyle = `rgba(0, 0, 0, ${alpha * 0.12})`;
+    for (let i = 1; i <= 3; i++) {
+        const yBase = -size * 0.6 + i * size * 0.4;
+        const xTip = size * 0.55;
+        ctx.beginPath(); ctx.moveTo(0, yBase); ctx.lineTo(-xTip, yBase - size * 0.22); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, yBase); ctx.lineTo(xTip, yBase - size * 0.22); ctx.stroke();
+    }
 
     // 叶茎
     ctx.beginPath();
-    ctx.strokeStyle = `rgba(100, 50, 20, ${alpha * 0.5})`;
-    ctx.lineWidth = 0.8;
-    ctx.moveTo(0, 0);
-    ctx.lineTo(0, size * 0.9);
+    ctx.strokeStyle = `rgba(80, 40, 10, ${alpha * 0.5})`;
+    ctx.lineWidth = size * 0.07;
+    ctx.moveTo(0, size * 0.9);
+    ctx.lineTo(0, size * 1.5);
     ctx.stroke();
 
     ctx.globalAlpha = 1;
@@ -83,21 +98,22 @@ export function AutumnLeavesCanvas({ duration }: { duration: number }) {
         ctx.scale(dpr, dpr);
         const scale = H / 800;
 
-        const leaves: Leaf[] = Array.from({ length: LEAF_COUNT }, () => ({
+        const leaves: Leaf[] = Array.from({ length: LEAF_COUNT }, (_, i) => ({
             x: Math.random() * W,
-            y: -20 - Math.random() * H * 0.5,   // 错落从屏幕顶部以上入场
-            vx: (Math.random() - 0.5) * 0.8 * scale,
-            vy: (1.0 + Math.random() * 1.2) * scale,
+            // 关键修复：初始 y 均匀分散在全屏，前 1/3 粒子从顶部以上入场，其余散布全屏
+            y: i < LEAF_COUNT / 3 ? -20 - Math.random() * 80 : Math.random() * H,
+            vx: (Math.random() - 0.5) * 0.9 * scale,
+            vy: (1.4 + Math.random() * 1.4) * scale,   // 下落速度提升，确保能穿越全屏
             swayPhase: Math.random() * Math.PI * 2,
-            swayAmp: (22 + Math.random() * 32) * scale,
+            swayAmp: (20 + Math.random() * 28) * scale,
             swayFreq: 0.4 + Math.random() * 0.5,
             rotX: Math.random() * Math.PI * 2,
             rotZ: (Math.random() - 0.5) * 0.6,
             rotXSpeed: (0.025 + Math.random() * 0.035) * (Math.random() < 0.5 ? 1 : -1),
             rotZSpeed: (0.008 + Math.random() * 0.012) * (Math.random() < 0.5 ? 1 : -1),
-            size: (7 + Math.random() * 7) * scale,
+            size: (8 + Math.random() * 8) * scale,
             colorIdx: Math.floor(Math.random() * LEAF_COLORS.length),
-            maxAlpha: 0.72 + Math.random() * 0.28,
+            maxAlpha: 0.75 + Math.random() * 0.25,
         }));
 
         let raf = 0;
@@ -115,18 +131,17 @@ export function AutumnLeavesCanvas({ duration }: { duration: number }) {
 
             ctx.clearRect(0, 0, W, H);
 
-            // 大气覆盖层：秋日暖橙微光，衬托叶片颜色
-            ctx.fillStyle = `rgba(60, 30, 10, ${0.08 * env})`;
+            // 大气覆盖层：秋日暖橙微光
+            ctx.fillStyle = `rgba(60, 30, 10, ${0.09 * env})`;
             ctx.fillRect(0, 0, W, H);
 
             for (const leaf of leaves) {
-                // 正弦漂移 + 重力下落
                 leaf.x += Math.sin(t * leaf.swayFreq + leaf.swayPhase) * leaf.swayAmp * 0.022 * dt + leaf.vx * dt;
                 leaf.y += leaf.vy * dt;
                 leaf.rotX += leaf.rotXSpeed * dt;
                 leaf.rotZ += leaf.rotZSpeed * dt;
-                // 到达底部或飞出侧边后从顶部重入
-                if (leaf.y > H + 30) { leaf.y = -20; leaf.x = Math.random() * W; }
+
+                if (leaf.y > H + 40) { leaf.y = -20; leaf.x = Math.random() * W; }
                 if (leaf.x < -50) leaf.x = W + 30;
                 if (leaf.x > W + 50) leaf.x = -30;
 
@@ -135,19 +150,13 @@ export function AutumnLeavesCanvas({ duration }: { duration: number }) {
 
                 ctx.save();
                 ctx.translate(leaf.x, leaf.y);
-                // 平面摇摆
                 ctx.rotate(leaf.rotZ);
-                // 竖轴翻转：scaleX 用 cos(rotX) 模拟叶片朝向变化（正/负 = 正面/背面）
                 const flipX = Math.cos(leaf.rotX);
                 ctx.scale(flipX, 1);
 
-                // 背面颜色更暗
-                const color = flipX < 0
-                    ? LEAF_COLORS[leaf.colorIdx].replace(/^#/, "")
-                    : LEAF_COLORS[leaf.colorIdx];
-                const drawAlpha = flipX < 0 ? alpha * 0.65 : alpha;
-
-                drawAutumnLeaf(ctx, leaf.size, `#${color}`, drawAlpha);
+                // 背面颜色暗一档
+                const drawAlpha = flipX < 0 ? alpha * 0.6 : alpha;
+                drawAutumnLeaf(ctx, leaf.size, LEAF_COLORS[leaf.colorIdx], drawAlpha);
                 ctx.restore();
             }
 
@@ -162,47 +171,38 @@ export function AutumnLeavesCanvas({ duration }: { duration: number }) {
 }
 
 // ── 落樱（Sakura） ────────────────────────────────────────────────────
-const SAKURA_COUNT = 35;
+const SAKURA_COUNT = 38;
 
-// 樱花粉白色系
 const SAKURA_COLORS = [
-    "#fde8f0", // 极淡粉白
-    "#f9c8db", // 浅粉
-    "#f4a7c0", // 中粉
-    "#f0c0d0", // 粉白
-    "#ffffff", // 纯白（部分花瓣）
+    "#fde8f0",
+    "#f9c8db",
+    "#f4a7c0",
+    "#f0c0d0",
+    "#ffffff",
 ];
 
 function drawSakuraPetal(ctx: CanvasRenderingContext2D, size: number, color: string, alpha: number) {
-    // 樱花单片花瓣：心形椭圆，顶端有轻微凹口
+    // 花瓣形：上宽下尖，顶端带轻微凹口（心形感）
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
-    ctx.strokeStyle = `rgba(200, 130, 150, ${alpha * 0.3})`;
+    ctx.strokeStyle = `rgba(200, 130, 150, ${alpha * 0.28})`;
     ctx.lineWidth = 0.5;
 
     ctx.beginPath();
-    // 花瓣形状：上宽下尖的卵形
-    ctx.moveTo(0, size * 0.9);
-    ctx.bezierCurveTo(
-        -size * 0.7, size * 0.3,
-        -size * 0.8, -size * 0.5,
-        0, -size * 0.2,
-    );
-    ctx.bezierCurveTo(
-        size * 0.8, -size * 0.5,
-        size * 0.7, size * 0.3,
-        0, size * 0.9,
-    );
+    ctx.moveTo(0, size);                                                      // 底尖
+    ctx.bezierCurveTo(-size * 0.75, size * 0.3, -size * 0.85, -size * 0.4, -size * 0.3, -size * 0.7); // 左弧到左上
+    ctx.bezierCurveTo(-size * 0.1, -size * 1.05, size * 0.1, -size * 1.05, size * 0.3, -size * 0.7);  // 顶部微凹
+    ctx.bezierCurveTo(size * 0.85, -size * 0.4, size * 0.75, size * 0.3, 0, size);                    // 右弧回底
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // 花瓣中央纹路（细腻感）
+    // 中央纹路
     ctx.beginPath();
-    ctx.strokeStyle = `rgba(220, 150, 170, ${alpha * 0.25})`;
+    ctx.strokeStyle = `rgba(210, 140, 160, ${alpha * 0.22})`;
     ctx.lineWidth = 0.4;
     ctx.moveTo(0, size * 0.85);
-    ctx.lineTo(0, -size * 0.15);
+    ctx.lineTo(0, -size * 0.6);
     ctx.stroke();
 
     ctx.globalAlpha = 1;
@@ -225,21 +225,21 @@ export function SakuraCanvas({ duration }: { duration: number }) {
         ctx.scale(dpr, dpr);
         const scale = H / 800;
 
-        const petals: Leaf[] = Array.from({ length: SAKURA_COUNT }, () => ({
+        const petals: Leaf[] = Array.from({ length: SAKURA_COUNT }, (_, i) => ({
             x: Math.random() * W,
-            y: -20 - Math.random() * H * 0.5,
-            vx: (0.3 + Math.random() * 0.5) * scale,   // 樱花偏向右漂（春风感）
-            vy: (0.7 + Math.random() * 0.9) * scale,    // 比落叶更轻盈，下落更慢
+            y: i < SAKURA_COUNT / 3 ? -20 - Math.random() * 80 : Math.random() * H,
+            vx: (0.4 + Math.random() * 0.5) * scale,
+            vy: (0.9 + Math.random() * 1.0) * scale,
             swayPhase: Math.random() * Math.PI * 2,
-            swayAmp: (28 + Math.random() * 36) * scale, // 摆幅更大，轻盈感
-            swayFreq: 0.35 + Math.random() * 0.45,
+            swayAmp: (28 + Math.random() * 34) * scale,
+            swayFreq: 0.32 + Math.random() * 0.42,
             rotX: Math.random() * Math.PI * 2,
             rotZ: (Math.random() - 0.5) * 0.5,
-            rotXSpeed: (0.018 + Math.random() * 0.028) * (Math.random() < 0.5 ? 1 : -1),
+            rotXSpeed: (0.018 + Math.random() * 0.026) * (Math.random() < 0.5 ? 1 : -1),
             rotZSpeed: (0.006 + Math.random() * 0.010) * (Math.random() < 0.5 ? 1 : -1),
-            size: (5.5 + Math.random() * 5.5) * scale,  // 花瓣比叶片稍小
+            size: (6 + Math.random() * 6) * scale,
             colorIdx: Math.floor(Math.random() * SAKURA_COLORS.length),
-            maxAlpha: 0.68 + Math.random() * 0.32,
+            maxAlpha: 0.70 + Math.random() * 0.30,
         }));
 
         let raf = 0;
@@ -280,8 +280,7 @@ export function SakuraCanvas({ duration }: { duration: number }) {
                 const flipX = Math.cos(petal.rotX);
                 ctx.scale(flipX, 1);
 
-                // 背面稍暗淡一些
-                const drawAlpha = flipX < 0 ? alpha * 0.7 : alpha;
+                const drawAlpha = flipX < 0 ? alpha * 0.68 : alpha;
                 drawSakuraPetal(ctx, petal.size, SAKURA_COLORS[petal.colorIdx], drawAlpha);
                 ctx.restore();
             }
