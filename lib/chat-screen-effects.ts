@@ -8,7 +8,22 @@
 
 import { kvGet, kvSet } from "./kv-db";
 
-export type ChatScreenEffectType = "emoji_rain" | "confetti" | "fireworks" | "hearts" | "bomb" | "dice";
+export type ChatScreenEffectType =
+    | "emoji_rain"
+    | "confetti"
+    | "fireworks"
+    | "hearts"
+    | "bomb"
+    | "dice"
+    | "snow"
+    | "rain"
+    | "thunderstorm"
+    | "shooting_star"
+    | "autumn_leaves"
+    | "bubbles"
+    | "fireflies"
+    | "sunbeam"
+    | "sakura";
 export type BuiltinScreenEffectType = Exclude<ChatScreenEffectType, "emoji_rain">;
 
 export type ChatScreenEffectRule = {
@@ -52,12 +67,23 @@ export const BUILTIN_SCREEN_EFFECTS: {
     type: BuiltinScreenEffectType;
     name: string;
     icon: string;
+    keywords?: string[];
+    icons?: string[];
 }[] = [
-    { type: "fireworks", name: "全屏烟花", icon: "🎆" },
-    { type: "hearts", name: "全屏爱心", icon: "💗" },
-    { type: "confetti", name: "全屏礼花", icon: "🎊" },
+    { type: "fireworks", name: "全屏烟花", icon: "🎆", keywords: ["烟花", "放烟花", "新年快乐", "跨年"] },
+    { type: "hearts", name: "全屏爱心", icon: "💗", keywords: ["我爱你", "超喜欢你", "比心", "爱你哦"] },
+    { type: "confetti", name: "全屏礼花", icon: "🎊", keywords: ["恭喜", "庆祝", "太棒了", "成功了"] },
     { type: "bomb", name: "全屏炸弹", icon: "💣" },
     { type: "dice", name: "掷骰子", icon: "🎲" },
+    { type: "snow", name: "落雪", icon: "❄️", keywords: ["下雪", "初雪", "好冷", "积雪", "下雪了"], icons: ["❄️", "🌨️"] },
+    { type: "rain", name: "细雨", icon: "🌧️", keywords: ["下雨", "听雨", "细雨", "雨天", "带伞", "下雨了"], icons: ["🌧️", "🌦️"] },
+    { type: "thunderstorm", name: "雷雨", icon: "⛈️", keywords: ["打雷", "暴雨", "雷阵雨", "雷鸣", "暴风雨"], icons: ["⛈️", "⚡"] },
+    { type: "shooting_star", name: "流星", icon: "🌠", keywords: ["流星", "许愿", "流星雨", "看星星"], icons: ["🌠", "💫"] },
+    { type: "autumn_leaves", name: "落叶", icon: "🍁", keywords: ["落叶", "秋天", "枫叶", "入秋", "秋意"], icons: ["🍁", "🍂"] },
+    { type: "bubbles", name: "浮光气泡", icon: "🫧", keywords: ["吹泡泡", "泡泡", "微醺", "干杯", "轻松"], icons: ["🫧"] },
+    { type: "fireflies", name: "夏夜萤火", icon: "✨", keywords: ["萤火虫", "安眠", "安静", "失眠", "晚安好梦"], icons: ["✨"] },
+    { type: "sunbeam", name: "晨曦微光", icon: "☀️", keywords: ["早上好", "早安", "天晴了", "出太阳", "晨光"], icons: ["☀️", "🌅"] },
+    { type: "sakura", name: "落樱飘雪", icon: "🌸", keywords: ["浪漫", "樱花", "告白", "想你"], icons: ["🌸"] },
 ];
 
 function notifyRulesUpdated(): void {
@@ -185,19 +211,46 @@ function keywordHit(text: string, keyword: string): boolean {
         .some(word => word && text.includes(word));
 }
 
-/** 首个命中的启用规则：表情雨按「包含」匹配；内置全屏特效没有触发词，
- *  只认整条消息恰好是特效图标本身（🎆💗🎊💣🎲），夹在句子里不触发 */
+/** 首个命中的启用规则：
+ *  1. 表情雨按「包含」匹配；
+ *  2. 内置特效：
+ *     - 炸弹/骰子保持单发触发（严格单图标），防止日常误触；
+ *     - 其余特效（烟花/爱心/礼花/雪/雨/流星等）支持「包含对应图标」或「包含关键词」即触发。
+ */
 export function matchChatScreenEffectRule(text: string): ChatScreenEffectMatch | null {
     if (!text) return null;
+    const trimmed = text.trim();
+    const builtins = loadBuiltinScreenEffectSettings();
+
+    // 1. 优先检查单发敏感特效（骰子 / 炸弹）
+    if (trimmed === "🎲" && builtins.dice?.enabled) {
+        return { effect: "dice", emojis: "" };
+    }
+    if (trimmed === "💣" && builtins.bomb?.enabled) {
+        return { effect: "bomb", emojis: "" };
+    }
+
+    // 2. 自定义表情雨规则匹配
     for (const rule of loadChatScreenEffectRules()) {
         if (rule.enabled && keywordHit(text, rule.keyword)) {
             return { effect: "emoji_rain", emojis: rule.emojis };
         }
     }
-    const trimmed = text.trim();
-    const builtins = loadBuiltinScreenEffectSettings();
+
+    // 3. 内置特效匹配（图标包含 或 关键词包含）
     for (const effect of BUILTIN_SCREEN_EFFECTS) {
-        if (trimmed === effect.icon && builtins[effect.type].enabled) {
+        if (!builtins[effect.type]?.enabled) continue;
+        if (effect.type === "dice" || effect.type === "bomb") continue;
+
+        // 图标命中：单发恰好是该图标，或文本包含该特效的任一图标
+        const iconList = effect.icons || [effect.icon];
+        const hitIcon = trimmed === effect.icon || iconList.some(icon => text.includes(icon));
+        if (hitIcon) {
+            return { effect: effect.type, emojis: "" };
+        }
+
+        // 关键词命中
+        if (effect.keywords && effect.keywords.some(kw => text.includes(kw))) {
             return { effect: effect.type, emojis: "" };
         }
     }
