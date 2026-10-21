@@ -89,6 +89,8 @@ import { extractTextToolDirectiveText } from "@/lib/text-tool-protocol";
 import { emitChatPluginEvent, getChatPluginHookBus, runChatPluginTransform } from "@/lib/chat-plugin-hooks";
 import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin-runtime";
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
+import { addFavorite } from "@/lib/chat-favorites-storage";
+import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
 
 // ── Call system message detection ──────────────────────────
 // Call messages are stored with user/assistant role for correct prompt alternation,
@@ -1152,6 +1154,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [customPlusActions, setCustomPlusActions] = useState<RegisteredCustomAppChatPlusAction[]>(() => loadCustomAppChatPlusActions());
     const [activeCustomChatPlus, setActiveCustomChatPlus] = useState<ActiveCustomChatPlus | null>(null);
     const [showSettings, setShowSettings] = useState(false);
+    const [showFavorites, setShowFavorites] = useState(false);
     const [showVoiceCall, setShowVoiceCall] = useState(false);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [callMinimized, setCallMinimized] = useState(false);
@@ -2702,6 +2705,31 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const showPersistentChatToast = (text: string) => {
         clearTimeout(chatToastTimer.current);
         setChatToast(text);
+    };
+
+    // ── 收藏消息 ──
+    const handleFavoriteMessage = async (m: ChatMessage) => {
+        setActiveMessageId(null);
+        try {
+            const contactId = session.isGroup ? session.id : session.contactId;
+            const charName = session.isGroup
+                ? (session.groupName || "群聊")
+                : (character?.name || "对方");
+            const charAvatar = session.isGroup ? undefined : (character?.avatar || undefined);
+            const userAvatar = userIdentity?.avatarUrl || undefined;
+            await addFavorite(m, {
+                contactId,
+                characterName: charName,
+                characterAvatar: charAvatar,
+                userAvatar,
+                userName: userIdentity?.name || "我",
+                isGroup: !!session.isGroup,
+                groupName: session.isGroup ? (session.groupName || undefined) : undefined,
+            });
+            showChatToast("已收藏至「专属收藏夹」");
+        } catch {
+            showChatToast("收藏失败，请重试");
+        }
     };
 
     const clearStuckGeneration = () => {
@@ -4979,6 +5007,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 className="ctx-menu chat-floating-ctx-menu flex flex-col items-center gap-[6px] py-[4px] px-0"
                 data-role={m.role}>
                 <div className="flex">
+                    <button onClick={() => void handleFavoriteMessage(m)} className="ctx-menu-btn">收藏</button>
                     <button onClick={() => {
                         const text = m.content;
                         const fallbackCopy = () => {
@@ -6401,6 +6430,17 @@ function formatCallDurationDisplay(durationStr: string): string {
                     onConfirm={handleMultiDeleteConfirmed}
                     onCancel={() => setShowConfirmMultiDelete(false)}
                 />
+            )}
+
+            {/* Favorites Panel */}
+            {showFavorites && wrapperRef.current?.parentElement && createPortal(
+                <div className="chat-settings-layer absolute inset-0 z-50">
+                    <ChatFavoritesPanel
+                        defaultContactId={session.isGroup ? session.id : session.contactId}
+                        onBack={() => setShowFavorites(false)}
+                    />
+                </div>,
+                wrapperRef.current.parentElement
             )}
 
             {/* Settings Panel — portaled outside session-scoped CSS, preserves chat room mount */}
