@@ -1,6 +1,6 @@
 "use client";
 
-// 聊天室全屏特效层：表情雨 / 礼花 / 烟花 / 爱心 / 炸弹 / 骰子。
+// 聊天室全屏特效层：表情雨 / 礼花 / 烟花 / 爱心 / 炸弹 / 骰子 / 天气 / 飘落 / 发光 / 光效。
 // 盖在聊天室上层但不拦截任何操作，粒子只用 transform/opacity 动画，播完自动卸载。
 
 import { useEffect, useMemo, type CSSProperties } from "react";
@@ -8,6 +8,7 @@ import type { ChatScreenEffectType } from "@/lib/chat-screen-effects";
 import { FireworksCanvas, FIREWORKS_DURATION_MS } from "./chat-screen-fireworks";
 import { SnowCanvas, RainCanvas, ThunderstormCanvas } from "./chat-screen-weather";
 import { AutumnLeavesCanvas, SakuraCanvas } from "./chat-screen-leaves";
+import { BubblesCanvas, FirefliesCanvas } from "./chat-screen-glow";
 
 export type ActiveScreenEffect = {
     /** 每次触发唯一，作为 key 强制重建粒子 */
@@ -43,7 +44,6 @@ const BOMB_SPARKS = 16;
 const CONFETTI_COLORS = ["#ff5f5f", "#ffb03a", "#ffe14d", "#5fd68a", "#4fa8ff", "#b28cff", "#ff8ad4"];
 const HEART_EMOJIS = ["💗", "💖", "❤️", "💕"];
 
-// 骰子点位：3x3 宫格（0-8）中每个点数要点亮的格子
 const DICE_PIPS: Record<number, number[]> = {
     1: [4],
     2: [0, 8],
@@ -53,7 +53,6 @@ const DICE_PIPS: Record<number, number[]> = {
     6: [0, 2, 3, 5, 6, 8],
 };
 
-// 3D 骰子：让指定点数朝向屏幕所需的立方体末态旋转（配合各面的摆放变换）
 const DICE_ORIENTATIONS: Record<number, [number, number]> = {
     1: [0, 0],
     2: [-90, 0],
@@ -88,7 +87,6 @@ function emojiRainParticles(emojis: string): { char: string; style: ParticleStyl
 
 function confettiParticles(): { color: string; style: ParticleStyle }[] {
     return Array.from({ length: CONFETTI_COUNT }, (_, i) => {
-        // 从底部中央向上喷发再散落；水平角度左右均匀分布
         const spread = (i / (CONFETTI_COUNT - 1)) * 2 - 1;
         const jitter = (Math.random() - 0.5) * 0.3;
         const dx = (spread + jitter) * 46;
@@ -146,6 +144,7 @@ type EffectParticles = {
     diceFace?: number;
     weatherType?: "snow" | "rain" | "thunderstorm";
     leavesType?: "autumn_leaves" | "sakura";
+    glowType?: "bubbles" | "fireflies";
 };
 
 function buildParticles(effect: ChatScreenEffectType, emojis: string, diceFace?: number): EffectParticles {
@@ -160,6 +159,8 @@ function buildParticles(effect: ChatScreenEffectType, emojis: string, diceFace?:
         case "thunderstorm": return { weatherType: "thunderstorm" };
         case "autumn_leaves": return { leavesType: "autumn_leaves" };
         case "sakura": return { leavesType: "sakura" };
+        case "bubbles": return { glowType: "bubbles" };
+        case "fireflies": return { glowType: "fireflies" };
         default: return { rain: emojiRainParticles(emojis) };
     }
 }
@@ -168,7 +169,6 @@ export function ChatScreenEffectOverlay({ active, onDone }: {
     active: ActiveScreenEffect | null;
     onDone: () => void;
 }) {
-    // 粒子随机参数在每次 runId 变化时生成一次，动画期间保持稳定
     const particles = useMemo(() => {
         if (!active) return null;
         return buildParticles(active.effect, active.emojis, active.diceFace);
@@ -206,6 +206,12 @@ export function ChatScreenEffectOverlay({ active, onDone }: {
             )}
             {particles.leavesType === "sakura" && (
                 <SakuraCanvas duration={EFFECT_DURATION_MS.sakura} />
+            )}
+            {particles.glowType === "bubbles" && (
+                <BubblesCanvas duration={EFFECT_DURATION_MS.bubbles} />
+            )}
+            {particles.glowType === "fireflies" && (
+                <FirefliesCanvas duration={EFFECT_DURATION_MS.fireflies} />
             )}
             {particles.fireworks && (
                 <>
