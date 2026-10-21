@@ -1,17 +1,16 @@
 "use client";
 
-// 光效系全屏特效 Canvas 渲染器：三级天象流星 / 晨曦微光。
+// 光效系全屏特效 Canvas 渲染器：流星 / 晨曦微光。
 //
-// 流星三级天象（每次触发随机 roll）：
-//   50% 极光流星：极光帘幕背景（柔和半透明）+ 多色流星铺满屏幕
-//   30% 彗星同框：双尾彗星缓缓划过 + 背景多色流星
-//   20% 星轨：深蓝夜空 + 弧形星轨逐渐叠加铺满屏幕（低擦除率累积感）
+// 流星重做：
+//   - 移动亮点 + 半透明覆盖衰减产生拖尾（头亮尾淡，物理正确）
+//   - 从右上往左下（110°~135°），不横着跑
+//   - 3~5 颗，随机延时错落出场
+//   - 65% 普通流星雨 / 35% 火流星场（1颗主星+2~3颗陪衬）
+//   - 多色流星：70% 冷白蓝白，30% 偶发彩色
+//   - 背景极低透明度深蓝，完全看得清聊天内容
 //
-// 修复：
-//   - 流星起点铺满全屏、角度加大随机范围
-//   - 极光帘幕降低 alpha，更柔和不遮挡
-//   - 星轨擦除率降低让轨迹叠加累积
-//   - 改 source-over 模式，浅色深色背景都清晰
+// 晨曦微光：梯形光柱 + 线性渐变，稳定版
 
 import { useEffect, useRef } from "react";
 
@@ -21,164 +20,76 @@ function envAlpha(elapsed: number, duration: number, fadeIn: number, fadeOut: nu
     return 1;
 }
 
-// ── 流星色相池 ────────────────────────────────────────────────────
-const COMMON_METEOR_COLORS: [number, number, number][] = [
-    [210, 20, 96],
-    [200, 15, 98],
-    [50,  30, 95],
-    [220, 25, 94],
+// ═══════════════════════════════════════════════════════════════════
+// ── 流星 ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+
+// 流星色相池：70% 冷白系，30% 彩色
+const COMMON_COLORS: [number, number, number][] = [
+    [210, 18, 97],   // 蓝白
+    [200, 12, 99],   // 纯白偏蓝
+    [50,  28, 96],   // 淡黄白
+    [220, 22, 95],   // 冷白
 ];
-const RARE_METEOR_COLORS: [number, number, number][] = [
-    [142, 65, 75],
-    [32,  72, 72],
-    [185, 70, 78],
-    [268, 58, 78],
-    [0,   68, 72],
+const RARE_COLORS: [number, number, number][] = [
+    [142, 62, 76],   // 绿（镍/铜）
+    [32,  70, 74],   // 橙（钠）
+    [185, 68, 80],   // 青（铜）
+    [268, 55, 80],   // 紫（钙）
+    [0,   65, 74],   // 红橙
 ];
-function pickMeteorColor(): [number, number, number] {
+function pickColor(): [number, number, number] {
     return Math.random() < 0.70
-        ? COMMON_METEOR_COLORS[Math.floor(Math.random() * COMMON_METEOR_COLORS.length)]
-        : RARE_METEOR_COLORS[Math.floor(Math.random() * RARE_METEOR_COLORS.length)];
+        ? COMMON_COLORS[Math.floor(Math.random() * COMMON_COLORS.length)]
+        : RARE_COLORS[Math.floor(Math.random() * RARE_COLORS.length)];
 }
 
-// ── 流星类型 ──────────────────────────────────────────────────────
-type Meteor = {
-    x: number; y: number;
-    vx: number; vy: number;
-    len: number; alpha: number;
-    life: number; maxLife: number;
+type MeteorParticle = {
+    x: number; y: number;       // 当前亮点位置
+    vx: number; vy: number;     // 每帧移动量
     hue: number; sat: number; light: number;
-    isBolide: boolean; width: number; delay: number;
+    coreR: number;              // 白热内核半径
+    glowR: number;              // 柔光晕半径
+    alpha: number;              // 峰值透明度
+    delay: number;              // 出场延时 ms
+    life: number; maxLife: number;
+    isBolide: boolean;          // 是否为火流星主星
+    active: boolean;            // 是否已入场
 };
 
-function makeMeteor(W: number, H: number, scale: number, isBolide = false): Meteor {
-    // 修复：起点铺满全屏宽度，y 扩展到上半屏，角度加大随机范围
-    const startX = W * (Math.random());
-    const startY = H * (Math.random() * 0.55);
-    const angle = (Math.PI / 5) + Math.random() * (Math.PI * 0.4); // 36°~108°，不再集中于 45°
-    const speed = isBolide ? (14 + Math.random() * 7) * scale : (8 + Math.random() * 9) * scale;
-    const life = isBolide ? 26 + Math.random() * 10 : 20 + Math.random() * 14;
-    const [hue, sat, light] = pickMeteorColor();
+function makeMeteor(W: number, H: number, scale: number, isBolide = false): MeteorParticle {
+    // 从右上区域入场，方向从右上往左下（110°~135°）
+    const startX = W * (0.30 + Math.random() * 0.70);   // 右侧 30%~100%
+    const startY = H * (Math.random() * 0.38);            // 上方 0~38%
+    // 角度：110°~135°（从右上往左下），弧度换算
+    const angleDeg = 110 + Math.random() * 25;
+    const angle = (angleDeg * Math.PI) / 180;
+    const speed = isBolide ? (14 + Math.random() * 8) * scale : (10 + Math.random() * 8) * scale;
+    const life = isBolide ? 55 + Math.random() * 20 : 40 + Math.random() * 22;
+    const [hue, sat, light] = pickColor();
+    const coreR = isBolide ? (3.5 + Math.random() * 2.0) * scale : (1.8 + Math.random() * 1.2) * scale;
     return {
         x: startX, y: startY,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        len: isBolide ? (90 + Math.random() * 55) * scale : (45 + Math.random() * 52) * scale,
-        alpha: isBolide ? 0.92 : 0.60 + Math.random() * 0.35,  // 提高基础 alpha，浅色背景也可见
-        life, maxLife: life,
         hue, sat, light,
-        isBolide,
-        width: isBolide ? 2.5 * scale : (1.0 + Math.random() * 0.9) * scale,
+        coreR,
+        glowR: coreR * (isBolide ? 5.5 : 4.2),
+        alpha: isBolide ? 1.0 : 0.72 + Math.random() * 0.28,
         delay: 0,
+        life, maxLife: life,
+        isBolide,
+        active: false,
     };
 }
 
-// ── 极光帘幕层 ────────────────────────────────────────────────────
-type AuroraLayer = {
-    yBase: number; thickness: number;
-    hueCenter: number; hueRange: number;
-    waveAmp: number; waveFreqX: number;
-    waveSpeedX: number; waveSpeedY: number;
-    alpha: number;
-};
-
-function makeAuroraLayers(H: number, scale: number, count: number): AuroraLayer[] {
-    const layers: AuroraLayer[] = [
-        // 主层：绿，修复：alpha 降低到 0.09~0.12，更柔和
-        {
-            yBase: 0.10 + Math.random() * 0.05,
-            thickness: (50 + Math.random() * 22) * scale,
-            hueCenter: 145 + Math.random() * 15,
-            hueRange: 35,
-            waveAmp: (16 + Math.random() * 14) * scale,
-            waveFreqX: 0.0025 + Math.random() * 0.0015,
-            waveSpeedX: 0.18 + Math.random() * 0.14,
-            waveSpeedY: 0.32 + Math.random() * 0.18,
-            alpha: 0.09 + Math.random() * 0.05,  // 原来 0.16+0.08，降低约 40%
-        },
-        // 副层：青蓝
-        {
-            yBase: 0.17 + Math.random() * 0.06,
-            thickness: (30 + Math.random() * 18) * scale,
-            hueCenter: 185 + Math.random() * 30,
-            hueRange: 40,
-            waveAmp: (10 + Math.random() * 12) * scale,
-            waveFreqX: 0.003 + Math.random() * 0.002,
-            waveSpeedX: 0.25 + Math.random() * 0.16,
-            waveSpeedY: 0.25 + Math.random() * 0.16,
-            alpha: 0.06 + Math.random() * 0.04,  // 原来 0.10+0.06，降低约 40%
-        },
-    ];
-    if (count === 3) {
-        layers.push({
-            yBase: 0.05 + Math.random() * 0.04,
-            thickness: (18 + Math.random() * 12) * scale,
-            hueCenter: 265 + Math.random() * 25,
-            hueRange: 28,
-            waveAmp: (7 + Math.random() * 9) * scale,
-            waveFreqX: 0.0035 + Math.random() * 0.002,
-            waveSpeedX: 0.20 + Math.random() * 0.12,
-            waveSpeedY: 0.20 + Math.random() * 0.12,
-            alpha: 0.04 + Math.random() * 0.03,
-        });
-    }
-    return layers;
-}
-
-// ── 彗星类型 ──────────────────────────────────────────────────────
-type Comet = {
+// 碎星粒子（火流星末段爆出）
+type Fragment = {
     x: number; y: number;
     vx: number; vy: number;
-    ionLen: number; dustLen: number;
     life: number; maxLife: number;
-    r: number;
+    hue: number; sat: number; r: number;
 };
-
-function makeComet(W: number, H: number, scale: number): Comet {
-    const startX = W * (0.10 + Math.random() * 0.40);
-    const startY = H * (0.03 + Math.random() * 0.10);
-    const angle = (Math.PI / 4) + (Math.random() - 0.5) * 0.25;
-    const speed = (3.2 + Math.random() * 2.0) * scale;
-    const life = 88 + Math.random() * 28;
-    return {
-        x: startX, y: startY,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        ionLen: (155 + Math.random() * 80) * scale,
-        dustLen: (115 + Math.random() * 58) * scale,
-        life, maxLife: life,
-        r: (5 + Math.random() * 3) * scale,
-    };
-}
-
-// ── 星轨类型 ──────────────────────────────────────────────────────
-type StarTrail = {
-    cx: number; cy: number;
-    radius: number;
-    startAngle: number;
-    arcLen: number;
-    alpha: number; width: number;
-    delay: number;
-    life: number; maxLife: number;
-};
-
-function makeStarTrail(W: number, H: number, scale: number): StarTrail {
-    // 圆心在屏幕偏上偏左，模拟北极星方向，但随机范围更大让弧线铺满全屏
-    const cx = W * (0.15 + Math.random() * 0.35);
-    const cy = H * (-0.05 + Math.random() * 0.18);
-    // 修复：半径范围扩大，确保弧线铺满全屏各角落
-    const radius = W * (0.35 + Math.random() * 1.4);
-    const startAngle = Math.random() * Math.PI * 2;
-    const arcLen = 0.05 + Math.random() * 0.22;
-    const life = 40 + Math.random() * 55;
-    return {
-        cx, cy, radius, startAngle, arcLen,
-        alpha: 0.30 + Math.random() * 0.55,
-        width: (0.7 + Math.random() * 0.9) * scale,
-        delay: Math.random() * 1600,
-        life, maxLife: life,
-    };
-}
 
 export function ShootingStarCanvas({ duration }: { duration: number }) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -197,236 +108,134 @@ export function ShootingStarCanvas({ duration }: { duration: number }) {
         ctx.scale(dpr, dpr);
         const scale = H / 800;
 
-        const roll = Math.random();
-        const mode: "aurora" | "comet" | "startrail" =
-            roll < 0.50 ? "aurora" :
-            roll < 0.80 ? "comet" : "startrail";
+        // 概率分级
+        const isBolideMode = Math.random() < 0.35;  // 35% 火流星场
+        const count = isBolideMode
+            ? 2 + Math.floor(Math.random() * 2)      // 火流星场：2~3 颗普通 + 1 颗主星
+            : 3 + Math.floor(Math.random() * 3);     // 普通流星雨：3~5 颗
 
-        const auroraLayers = mode === "aurora"
-            ? makeAuroraLayers(H, scale, 2 + Math.floor(Math.random() * 2))
-            : [];
+        const meteors: MeteorParticle[] = Array.from({ length: count }, (_, i) => ({
+            ...makeMeteor(W, H, scale, false),
+            // 错落延时：第一颗 0~400ms，后续每颗间隔 600~1400ms
+            delay: i === 0
+                ? Math.random() * 400
+                : 400 + i * (600 + Math.random() * 800),
+        }));
 
-        const meteorCount = mode === "aurora"
-            ? (Math.random() < 0.50 ? 5 + Math.floor(Math.random() * 4) : 9 + Math.floor(Math.random() * 7))
-            : 4 + Math.floor(Math.random() * 4);
+        // 火流星主星（最后出场，最亮最大）
+        if (isBolideMode) {
+            meteors.push({
+                ...makeMeteor(W, H, scale, true),
+                delay: 300 + Math.random() * 600,
+            });
+        }
 
-        const meteors: Meteor[] = mode !== "startrail"
-            ? Array.from({ length: meteorCount }, (_, i) => ({
-                ...makeMeteor(W, H, scale, false),
-                delay: i * (mode === "aurora" ? 240 : 360) + Math.random() * 160,
-            }))
-            : [];
-
-        const comet: Comet | null = mode === "comet" ? makeComet(W, H, scale) : null;
-
-        // 修复：星轨数量增加到 80~100 条，确保铺满感
-        const TRAIL_COUNT = 80 + Math.floor(Math.random() * 25);
-        const starTrails: StarTrail[] = mode === "startrail"
-            ? Array.from({ length: TRAIL_COUNT }, () => makeStarTrail(W, H, scale))
-            : [];
-
-        type Fragment = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; hue: number; sat: number };
         const fragments: Fragment[] = [];
 
         let raf = 0;
         let last = performance.now();
         const startAt = last;
-        const FADE_IN = 400;
-        const FADE_OUT = 900;
-
-        ctx.lineCap = "round";
+        const FADE_IN = 300;
+        const FADE_OUT = 800;
 
         const loop = (now: number) => {
             const dt = Math.min(2.2, (now - last) / 16.7);
             last = now;
             const elapsed = now - startAt;
             const env = envAlpha(elapsed, duration, FADE_IN, FADE_OUT);
-            const t = elapsed / 1000;
 
-            // ══ 星轨模式 ══
-            if (mode === "startrail") {
-                ctx.globalCompositeOperation = "source-over";
-                // 深蓝夜空基底：每帧叠加一点，慢慢压暗
-                ctx.fillStyle = `rgba(4, 10, 30, ${0.06 * env})`;
-                ctx.fillRect(0, 0, W, H);
-
-                // 修复：擦除率从 0.15 降到 0.05，让星轨轨迹慢慢叠加累积
-                ctx.globalCompositeOperation = "destination-out";
-                ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-                ctx.fillRect(0, 0, W, H);
-                ctx.globalCompositeOperation = "source-over";
-
-                for (const trail of starTrails) {
-                    if (elapsed < trail.delay) continue;
-                    trail.life -= dt;
-                    if (trail.life <= 0) continue;
-                    const tl = trail.life / trail.maxLife;
-                    // 淡入：前 10 帧渐入，防止突然出现
-                    const fadeIn = Math.min(1, (trail.maxLife - trail.life) / 10);
-                    const alpha = trail.alpha * fadeIn * tl * env;
-                    if (alpha <= 0.01) continue;
-
-                    ctx.strokeStyle = `rgba(210, 228, 255, ${alpha})`;
-                    ctx.lineWidth = trail.width;
-                    ctx.beginPath();
-                    ctx.arc(trail.cx, trail.cy, trail.radius, trail.startAngle, trail.startAngle + trail.arcLen);
-                    ctx.stroke();
-                }
-                raf = requestAnimationFrame(loop);
-                return;
-            }
-
-            // ══ 极光 / 彗星模式 ══
-            // 修复：改 source-over，浅色深色背景都能看清
+            // ── 背景：极低透明度深蓝，每帧叠加营造入夜感 ──
+            // 不清画布！用半透明覆盖让前帧亮迹自然衰减 → 产生拖尾
             ctx.globalCompositeOperation = "source-over";
-            // 夜空基底：极低透明度，聊天内容完全可见
-            ctx.fillStyle = `rgba(3, 10, 24, ${0.07 * env})`;
+            ctx.fillStyle = `rgba(4, 9, 26, ${0.06 * env})`;
             ctx.fillRect(0, 0, W, H);
 
-            // 极光帘幕（aurora 模式，修复后更柔和）
-            if (mode === "aurora") {
-                for (const layer of auroraLayers) {
-                    const breathAlpha = layer.alpha
-                        * (0.65 + 0.35 * Math.sin(t * layer.waveSpeedY + layer.yBase * 20))
-                        * env;
-                    if (breathAlpha < 0.003) continue;
-                    const steps = Math.ceil(W / 9);
-                    for (let s = 0; s <= steps; s++) {
-                        const px = (s / steps) * W;
-                        const py = H * layer.yBase
-                            + Math.sin(px * layer.waveFreqX + t * layer.waveSpeedX) * layer.waveAmp;
-                        const hue = layer.hueCenter + ((s / steps) - 0.5) * layer.hueRange;
-                        const grad = ctx.createRadialGradient(px, py, 0, px, py, layer.thickness);
-                        grad.addColorStop(0,    `hsla(${hue}, 85%, 68%, ${breathAlpha})`);
-                        grad.addColorStop(0.42, `hsla(${hue}, 80%, 62%, ${breathAlpha * 0.40})`);
-                        grad.addColorStop(0.78, `hsla(${hue}, 76%, 58%, ${breathAlpha * 0.10})`);
-                        grad.addColorStop(1,    `hsla(${hue}, 72%, 55%, 0)`);
-                        ctx.fillStyle = grad;
-                        ctx.beginPath();
-                        ctx.ellipse(px, py, layer.thickness * 0.88, layer.thickness * 0.42, 0, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
-                }
-            }
+            // ── 拖尾衰减层：盖一层半透明黑，让亮迹逐渐消隐 ──
+            // 透明度 0.18：约 5~6 帧后亮迹衰减到不可见，彗尾长度自然合适
+            ctx.fillStyle = `rgba(0, 0, 0, ${0.18 * env})`;
+            ctx.fillRect(0, 0, W, H);
 
-            // 彗星
-            if (comet && mode === "comet") {
-                comet.x += comet.vx * dt;
-                comet.y += comet.vy * dt;
-                comet.life -= dt;
-
-                if (comet.life > 0) {
-                    const ct = comet.life / comet.maxLife;
-                    const coreAlpha = Math.min(1, (comet.maxLife - comet.life) / 12) * ct * env;
-
-                    if (coreAlpha > 0.01) {
-                        const spd = Math.hypot(comet.vx, comet.vy);
-                        const nx = comet.vx / spd;
-                        const ny = comet.vy / spd;
-
-                        // 尘埃尾（暖黄宽散）
-                        const dustTailX = comet.x - nx * comet.dustLen;
-                        const dustTailY = comet.y - ny * comet.dustLen;
-                        const dustGrad = ctx.createLinearGradient(dustTailX, dustTailY, comet.x, comet.y);
-                        dustGrad.addColorStop(0,    `rgba(180, 140, 60, 0)`);
-                        dustGrad.addColorStop(0.45, `rgba(210, 170, 80, ${coreAlpha * 0.22})`);
-                        dustGrad.addColorStop(0.82, `rgba(235, 200, 110, ${coreAlpha * 0.45})`);
-                        dustGrad.addColorStop(1,    `rgba(255, 230, 160, ${coreAlpha * 0.70})`);
-                        ctx.strokeStyle = dustGrad;
-                        ctx.lineWidth = comet.r * 2.8;
-                        ctx.globalAlpha = 0.55;
-                        ctx.beginPath(); ctx.moveTo(dustTailX, dustTailY); ctx.lineTo(comet.x, comet.y); ctx.stroke();
-
-                        // 离子尾（蓝白细直，偏角 0.12）
-                        const ionAngle = Math.atan2(ny, nx) - 0.12;
-                        const ionTailX = comet.x - Math.cos(ionAngle) * comet.ionLen;
-                        const ionTailY = comet.y - Math.sin(ionAngle) * comet.ionLen;
-                        const ionGrad = ctx.createLinearGradient(ionTailX, ionTailY, comet.x, comet.y);
-                        ionGrad.addColorStop(0,    `rgba(100, 160, 255, 0)`);
-                        ionGrad.addColorStop(0.50, `rgba(140, 195, 255, ${coreAlpha * 0.35})`);
-                        ionGrad.addColorStop(0.85, `rgba(190, 225, 255, ${coreAlpha * 0.72})`);
-                        ionGrad.addColorStop(1,    `rgba(230, 248, 255, ${coreAlpha * 0.90})`);
-                        ctx.strokeStyle = ionGrad;
-                        ctx.lineWidth = comet.r * 0.65;
-                        ctx.globalAlpha = 1;
-                        ctx.beginPath(); ctx.moveTo(ionTailX, ionTailY); ctx.lineTo(comet.x, comet.y); ctx.stroke();
-
-                        // 彗核白热光点
-                        const coreGrad = ctx.createRadialGradient(comet.x, comet.y, 0, comet.x, comet.y, comet.r * 2.8);
-                        coreGrad.addColorStop(0,   `rgba(255, 255, 255, ${coreAlpha})`);
-                        coreGrad.addColorStop(0.4, `rgba(210, 240, 255, ${coreAlpha * 0.7})`);
-                        coreGrad.addColorStop(1,   `rgba(150, 200, 255, 0)`);
-                        ctx.fillStyle = coreGrad;
-                        ctx.globalAlpha = 1;
-                        ctx.beginPath(); ctx.arc(comet.x, comet.y, comet.r * 2.8, 0, Math.PI * 2); ctx.fill();
-                    }
-                }
-            }
-
-            // 流星（source-over，浅色深色都可见）
-            ctx.globalAlpha = 1;
-            ctx.globalCompositeOperation = "source-over";
-
+            // ── 流星亮点渲染 ──
             for (const m of meteors) {
                 if (elapsed < m.delay) continue;
+                if (!m.active) m.active = true;
+
                 m.x += m.vx * dt;
                 m.y += m.vy * dt;
                 m.life -= dt;
-                if (m.life <= 0) continue;
 
-                const mt = m.life / m.maxLife;
-                const alpha = m.alpha * mt * env;
+                // 飞出屏幕或寿命耗尽
+                if (m.life <= 0 || m.x < -80 || m.y > H + 80) continue;
+
+                const lt = m.life / m.maxLife;
+                // 淡入（前 8 帧）+ 淡出（末 20% 寿命）
+                const fadeIn = Math.min(1, (m.maxLife - m.life) / 8);
+                const alpha = m.alpha * fadeIn * Math.min(1, lt * 3.5) * env;
                 if (alpha <= 0.01) continue;
 
-                const spd = Math.hypot(m.vx, m.vy);
-                const tailX = m.x - (m.vx / spd) * m.len;
-                const tailY = m.y - (m.vy / spd) * m.len;
+                // 第 1 层：外圈漫射光晕（最大最淡）
+                const outerR = m.glowR * 1.8;
+                const outerGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, outerR);
+                outerGrad.addColorStop(0,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.18})`);
+                outerGrad.addColorStop(0.5,  `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.06})`);
+                outerGrad.addColorStop(1,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
+                ctx.fillStyle = outerGrad;
+                ctx.beginPath();
+                ctx.arc(m.x, m.y, outerR, 0, Math.PI * 2);
+                ctx.fill();
 
-                const grad = ctx.createLinearGradient(tailX, tailY, m.x, m.y);
-                grad.addColorStop(0,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
-                grad.addColorStop(0.55, `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.42})`);
-                grad.addColorStop(0.85, `hsla(${m.hue}, ${m.sat + 5}%, ${Math.min(98, m.light + 6)}%, ${alpha * 0.80})`);
-                grad.addColorStop(1,    `rgba(255, 255, 255, ${alpha})`);
+                // 第 2 层：中层柔光晕（带流星主色）
+                const glowGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.glowR);
+                glowGrad.addColorStop(0,    `hsla(${m.hue}, ${m.sat}%, ${Math.min(98, m.light + 5)}%, ${alpha * 0.65})`);
+                glowGrad.addColorStop(0.45, `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.28})`);
+                glowGrad.addColorStop(1,    `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
+                ctx.fillStyle = glowGrad;
+                ctx.beginPath();
+                ctx.arc(m.x, m.y, m.glowR, 0, Math.PI * 2);
+                ctx.fill();
 
-                // 外圈柔光
-                ctx.lineWidth = m.width * (m.isBolide ? 4.0 : 2.6);
-                ctx.globalAlpha = 0.22;
-                ctx.strokeStyle = grad;
-                ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(m.x, m.y); ctx.stroke();
+                // 第 3 层：白热内核（最小最亮）
+                const coreGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.coreR);
+                coreGrad.addColorStop(0,   `rgba(255, 255, 255, ${alpha})`);
+                coreGrad.addColorStop(0.6, `hsla(${m.hue}, ${m.sat}%, 92%, ${alpha * 0.75})`);
+                coreGrad.addColorStop(1,   `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
+                ctx.fillStyle = coreGrad;
+                ctx.beginPath();
+                ctx.arc(m.x, m.y, m.coreR, 0, Math.PI * 2);
+                ctx.fill();
 
-                // 内核
-                ctx.globalAlpha = 1;
-                ctx.lineWidth = m.width;
-                ctx.strokeStyle = grad;
-                ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(m.x, m.y); ctx.stroke();
-
-                if (m.isBolide) {
-                    const coreGrad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.width * 4.2);
-                    coreGrad.addColorStop(0,   `rgba(255, 255, 255, ${alpha})`);
-                    coreGrad.addColorStop(0.4, `hsla(${m.hue}, ${m.sat}%, ${m.light}%, ${alpha * 0.65})`);
-                    coreGrad.addColorStop(1,   `hsla(${m.hue}, ${m.sat}%, ${m.light}%, 0)`);
-                    ctx.fillStyle = coreGrad;
-                    ctx.beginPath(); ctx.arc(m.x, m.y, m.width * 4.2, 0, Math.PI * 2); ctx.fill();
-
-                    if (mt < 0.3 && fragments.length < 18 && Math.random() < 0.22) {
-                        const angle = Math.random() * Math.PI * 2;
-                        const sp = (1.0 + Math.random() * 1.8) * scale;
-                        const fl = 12 + Math.random() * 10;
-                        fragments.push({ x: m.x, y: m.y, vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp, life: fl, maxLife: fl, hue: m.hue, sat: m.sat });
-                    }
+                // 火流星：末段爆出碎星粒子
+                if (m.isBolide && lt < 0.28 && fragments.length < 22 && Math.random() < 0.28) {
+                    const fragAngle = Math.random() * Math.PI * 2;
+                    const fragSpeed = (1.2 + Math.random() * 2.2) * scale;
+                    const fragLife = 14 + Math.random() * 12;
+                    fragments.push({
+                        x: m.x, y: m.y,
+                        vx: Math.cos(fragAngle) * fragSpeed,
+                        vy: Math.sin(fragAngle) * fragSpeed,
+                        life: fragLife, maxLife: fragLife,
+                        hue: m.hue, sat: m.sat,
+                        r: (0.8 + Math.random() * 1.0) * scale,
+                    });
                 }
             }
 
-            ctx.globalAlpha = 1;
+            // ── 碎星粒子 ──
             for (let i = fragments.length - 1; i >= 0; i--) {
                 const f = fragments[i];
-                f.x += f.vx * dt; f.y += f.vy * dt;
+                f.x += f.vx * dt;
+                f.y += f.vy * dt;
+                f.vy += 0.03 * scale * dt;  // 微弱重力
                 f.life -= dt;
                 if (f.life <= 0) { fragments.splice(i, 1); continue; }
                 const ft = f.life / f.maxLife;
+                const fragGrad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 1.8);
+                fragGrad.addColorStop(0,   `rgba(255, 255, 255, ${0.9 * ft * env})`);
+                fragGrad.addColorStop(0.5, `hsla(${f.hue}, ${f.sat}%, 88%, ${0.5 * ft * env})`);
+                fragGrad.addColorStop(1,   `hsla(${f.hue}, ${f.sat}%, 80%, 0)`);
+                ctx.fillStyle = fragGrad;
                 ctx.beginPath();
-                ctx.arc(f.x, f.y, Math.max(0.4, 1.3 * scale * ft), 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(${f.hue}, ${f.sat}%, 88%, ${0.85 * ft * env})`;
+                ctx.arc(f.x, f.y, f.r * 1.8, 0, Math.PI * 2);
                 ctx.fill();
             }
 
@@ -513,7 +322,6 @@ export function SunbeamCanvas({ duration }: { duration: number }) {
             ctx.clearRect(0, 0, W, H);
             beamPhase += 0.008 * dt;
 
-            // 右上角金橙柔光基底
             const ambientGrad = ctx.createRadialGradient(W * 0.78, 0, 0, W * 0.78, 0, W * 0.75);
             ambientGrad.addColorStop(0,   `rgba(255, 220, 120, ${0.18 * env})`);
             ambientGrad.addColorStop(0.5, `rgba(255, 195, 80,  ${0.08 * env})`);
@@ -521,7 +329,6 @@ export function SunbeamCanvas({ duration }: { duration: number }) {
             ctx.fillStyle = ambientGrad;
             ctx.fillRect(0, 0, W, H);
 
-            // 梯形光柱（原版线性渐变）
             for (const beam of beams) {
                 const breathAlpha = beam.alpha * (0.75 + 0.25 * Math.sin(beamPhase + beam.angle)) * env;
                 if (breathAlpha <= 0.005) continue;
@@ -550,7 +357,6 @@ export function SunbeamCanvas({ duration }: { duration: number }) {
                 ctx.restore();
             }
 
-            // 微尘
             for (const d of dusts) {
                 d.x += d.vx * dt + Math.sin(t * 0.3 + d.breathPhase) * 0.18 * scale * dt;
                 d.y += d.vy * dt;
