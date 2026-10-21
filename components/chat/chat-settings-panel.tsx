@@ -1596,7 +1596,7 @@ export function ChatSettingsPanel({
                 />
             )}
 
-            {/* Sub-page: 聊天收藏 */}
+            {/* Sub-page: 聊天收藏（专属模式，只看当前角色，不显示 Tab 筛选） */}
             {showFavorites && (
                 <div style={{ position: "absolute", inset: 0, zIndex: 9999 }}>
                     <ChatFavoritesPanel
