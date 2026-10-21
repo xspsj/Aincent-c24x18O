@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useChatHeaderKeyboardOffset } from "./use-call-keyboard-offset";
 
 type ChatPageHeaderProps = {
     title: string;
@@ -12,10 +11,9 @@ type ChatPageHeaderProps = {
 
 export function ChatPageHeader({ title, left, right, className }: ChatPageHeaderProps) {
     const slotPlaceholder = <span aria-hidden style={{ width: 40, height: 40, display: "block" }} />;
-    const keyboardOffsetStyle = useChatHeaderKeyboardOffset();
 
     return (
-        <header className={`page-header z-10 ${className ?? ""}`.trim()} data-ui="header" style={keyboardOffsetStyle}>
+        <header className={`page-header z-10 ${className ?? ""}`.trim()} data-ui="header">
             <div className="page-header-safe-area" />
             <div className="page-header-content">
                 {left ?? slotPlaceholder}
