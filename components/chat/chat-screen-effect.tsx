@@ -9,6 +9,7 @@ import { FireworksCanvas, FIREWORKS_DURATION_MS } from "./chat-screen-fireworks"
 import { SnowCanvas, RainCanvas, ThunderstormCanvas } from "./chat-screen-weather";
 import { AutumnLeavesCanvas, SakuraCanvas } from "./chat-screen-leaves";
 import { BubblesCanvas, FirefliesCanvas } from "./chat-screen-glow";
+import { ShootingStarCanvas, SunbeamCanvas } from "./chat-screen-light";
 
 export type ActiveScreenEffect = {
     /** 每次触发唯一，作为 key 强制重建粒子 */
@@ -145,23 +146,26 @@ type EffectParticles = {
     weatherType?: "snow" | "rain" | "thunderstorm";
     leavesType?: "autumn_leaves" | "sakura";
     glowType?: "bubbles" | "fireflies";
+    lightType?: "shooting_star" | "sunbeam";
 };
 
 function buildParticles(effect: ChatScreenEffectType, emojis: string, diceFace?: number): EffectParticles {
     switch (effect) {
-        case "confetti": return { confetti: confettiParticles() };
-        case "fireworks": return { fireworks: true };
-        case "hearts": return { hearts: heartParticles() };
-        case "bomb": return { bombSparks: bombSparks() };
-        case "dice": return { diceFace: diceFace ?? 1 + Math.floor(Math.random() * 6) };
-        case "snow": return { weatherType: "snow" };
-        case "rain": return { weatherType: "rain" };
-        case "thunderstorm": return { weatherType: "thunderstorm" };
+        case "confetti":      return { confetti: confettiParticles() };
+        case "fireworks":     return { fireworks: true };
+        case "hearts":        return { hearts: heartParticles() };
+        case "bomb":          return { bombSparks: bombSparks() };
+        case "dice":          return { diceFace: diceFace ?? 1 + Math.floor(Math.random() * 6) };
+        case "snow":          return { weatherType: "snow" };
+        case "rain":          return { weatherType: "rain" };
+        case "thunderstorm":  return { weatherType: "thunderstorm" };
         case "autumn_leaves": return { leavesType: "autumn_leaves" };
-        case "sakura": return { leavesType: "sakura" };
-        case "bubbles": return { glowType: "bubbles" };
-        case "fireflies": return { glowType: "fireflies" };
-        default: return { rain: emojiRainParticles(emojis) };
+        case "sakura":        return { leavesType: "sakura" };
+        case "bubbles":       return { glowType: "bubbles" };
+        case "fireflies":     return { glowType: "fireflies" };
+        case "shooting_star": return { lightType: "shooting_star" };
+        case "sunbeam":       return { lightType: "sunbeam" };
+        default:              return { rain: emojiRainParticles(emojis) };
     }
 }
 
@@ -212,6 +216,12 @@ export function ChatScreenEffectOverlay({ active, onDone }: {
             )}
             {particles.glowType === "fireflies" && (
                 <FirefliesCanvas duration={EFFECT_DURATION_MS.fireflies} />
+            )}
+            {particles.lightType === "shooting_star" && (
+                <ShootingStarCanvas duration={EFFECT_DURATION_MS.shooting_star} />
+            )}
+            {particles.lightType === "sunbeam" && (
+                <SunbeamCanvas duration={EFFECT_DURATION_MS.sunbeam} />
             )}
             {particles.fireworks && (
                 <>
