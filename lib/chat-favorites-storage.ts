@@ -4,32 +4,48 @@
 
 import Dexie from "dexie";
 import type { ChatMessage } from "./chat-storage";
+import { isMediaStoreRef, loadMediaBlob } from "./media-cache-storage";
+import { getChatImageFromIndexedDB } from "./chat-asset-storage";
 
 // ── 数据类型 ──────────────────────────────
 
-export type FavoriteItem = {
-    id: string;               // 收藏记录唯一 ID（与原消息 ID 无关）
-    originalMessageId: string; // 原消息 ID（仅供参考，消息可能已被删）
-    sessionId: string;        // 原会话 ID（仅供参考）
-    contactId: string;        // 角色 ID（单聊=contactId，群聊=群 session.contactId）
-    characterName: string;    // 角色/群聊名称快照
-    characterAvatar?: string; // 角色头像快照（URL/base64，可选）
-    userAvatar?: string;      // 用户头像快照（可选）
-    userName?: string;        // 用户名快照
-    isGroup: boolean;
-    groupName?: string;
-    role: ChatMessage["role"]; // 消息角色
-    mediaType: ChatMessage["mediaType"]; // 消息媒体类型
-    content: string;          // 消息正文
-    mediaData?: ChatMessage["mediaData"]; // 媒体数据（完整克隆）
-    mediaUrl?: string;        // 原始 mediaUrl（图片/音频引用，克隆后存 fixedBlob）
-    fixedBlob?: string;       // 图片/音频的 base64 固化数据（第一期仅为占位，第二期写入）
-    originalCreatedAt: string; // 原消息发送时间
-    favoritedAt: string;      // 收藏时间
-    note?: string;            // 用户备注（预留）
+/** 合并收藏中每一条消息的快照 */
+export type CombinedMessageSnapshot = {
+    role: ChatMessage["role"];
+    senderName?: string;
+    content: string;
+    mediaType?: ChatMessage["mediaType"];
+    mediaData?: ChatMessage["mediaData"];
+    createdAt: string;
+    fixedBlob?: string; // 该条消息的图片固化数据
 };
 
-// ── Dexie 数据库（在 chat-db.ts 之外独立建库，零耦合） ──
+export type FavoriteItem = {
+    id: string;               // 收藏记录唯一 ID
+    originalMessageId: string; // 原消息 ID（单条时有意义，合并时取第一条）
+    sessionId: string;
+    contactId: string;        // 角色 ID（单聊=contactId，群聊=session.id）
+    characterName: string;
+    characterAvatar?: string;
+    userAvatar?: string;
+    userName?: string;
+    isGroup: boolean;
+    groupName?: string;
+    role: ChatMessage["role"];
+    mediaType: ChatMessage["mediaType"];
+    content: string;          // 单条正文 / 合并时的摘要预览
+    mediaData?: ChatMessage["mediaData"];
+    mediaUrl?: string;
+    fixedBlob?: string;       // 单条消息的图片/媒体固化 base64
+    // 合并收藏
+    isCombined?: boolean;
+    combinedMessages?: CombinedMessageSnapshot[];
+    originalCreatedAt: string;
+    favoritedAt: string;
+    note?: string;
+};
+
+// ── Dexie 数据库 ──────────────────────────
 
 class FavoritesDatabase extends Dexie {
     favorites!: Dexie.Table<FavoriteItem, string>;
@@ -37,7 +53,6 @@ class FavoritesDatabase extends Dexie {
     constructor() {
         super("AiPhoneFavoritesDB");
         this.version(1).stores({
-            // 主键 id；按 contactId + favoritedAt 建索引供列表筛选/排序
             favorites: "id, contactId, favoritedAt, sessionId",
         });
     }
@@ -45,18 +60,63 @@ class FavoritesDatabase extends Dexie {
 
 const favDb = new FavoritesDatabase();
 
-// ── 工具函数 ──────────────────────────────
+// ── 图片固化工具 ──────────────────────────
+
+/**
+ * 尝试把消息里的图片 URL/ref 转成 base64 data URL 固化存储。
+ * 失败时静默返回 undefined，不阻断收藏。
+ */
+async function tryFixImageBlob(msg: ChatMessage): Promise<string | undefined> {
+    if (msg.mediaType !== "image") return undefined;
+
+    const url = msg.mediaUrl || msg.mediaData?.imageGenerationMediaRef;
+    if (!url) return undefined;
+
+    try {
+        // 路径1: media-store:// 引用 → 从 MediaCacheDB 读 blob
+        if (isMediaStoreRef(url)) {
+            const result = await loadMediaBlob(url);
+            if (!result) return undefined;
+            return await blobToBase64DataUrl(result.blob, result.mimeType);
+        }
+
+        // 路径2: IDB asset key（chat-asset-storage）→ 直接返回 data URL
+        if (!url.startsWith("http") && !url.startsWith("data:") && !url.startsWith("blob:")) {
+            const dataUrl = await getChatImageFromIndexedDB(url);
+            if (dataUrl) return dataUrl;
+        }
+
+        // 路径3: blob: URL → fetch 转 base64
+        if (url.startsWith("blob:")) {
+            const resp = await fetch(url);
+            const blob = await resp.blob();
+            return await blobToBase64DataUrl(blob, blob.type);
+        }
+
+        // 路径4: data: URL → 直接用
+        if (url.startsWith("data:")) return url;
+
+    } catch {
+        // 任何失败都静默处理，不影响收藏
+    }
+    return undefined;
+}
+
+async function blobToBase64DataUrl(blob: Blob, mimeType: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
 
 function generateFavoriteId(): string {
     return `fav_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ── 写入 ──────────────────────────────────
+// ── 写入：单条收藏 ────────────────────────
 
-/**
- * 将一条 ChatMessage 深度克隆后写入收藏夹。
- * 返回已保存的 FavoriteItem；失败时抛出错误。
- */
 export async function addFavorite(
     msg: ChatMessage,
     meta: {
@@ -69,6 +129,8 @@ export async function addFavorite(
         groupName?: string;
     }
 ): Promise<FavoriteItem> {
+    const fixedBlob = await tryFixImageBlob(msg);
+
     const item: FavoriteItem = {
         id: generateFavoriteId(),
         originalMessageId: msg.id,
@@ -83,9 +145,10 @@ export async function addFavorite(
         role: msg.role,
         mediaType: msg.mediaType,
         content: msg.content,
-        // 深度克隆 mediaData，彻底脱离原始引用
         mediaData: msg.mediaData ? JSON.parse(JSON.stringify(msg.mediaData)) : undefined,
         mediaUrl: msg.mediaUrl,
+        fixedBlob,
+        isCombined: false,
         originalCreatedAt: msg.createdAt,
         favoritedAt: new Date().toISOString(),
     };
@@ -93,26 +156,83 @@ export async function addFavorite(
     return item;
 }
 
-/**
- * 删除一条收藏记录（按收藏 ID）。
- */
+// ── 写入：合并收藏（多条） ─────────────────
+
+export async function addCombinedFavorite(
+    msgs: ChatMessage[],
+    meta: {
+        contactId: string;
+        characterName: string;
+        characterAvatar?: string;
+        userAvatar?: string;
+        userName?: string;
+        isGroup: boolean;
+        groupName?: string;
+        getSenderName: (msg: ChatMessage) => string;
+    }
+): Promise<FavoriteItem> {
+    if (msgs.length === 0) throw new Error("消息列表不能为空");
+
+    // 并行固化所有图片
+    const fixedBlobs = await Promise.all(msgs.map(m => tryFixImageBlob(m)));
+
+    const combinedMessages: CombinedMessageSnapshot[] = msgs.map((m, i) => ({
+        role: m.role,
+        senderName: meta.getSenderName(m),
+        content: m.content,
+        mediaType: m.mediaType,
+        mediaData: m.mediaData ? JSON.parse(JSON.stringify(m.mediaData)) : undefined,
+        createdAt: m.createdAt,
+        fixedBlob: fixedBlobs[i],
+    }));
+
+    // 摘要预览：前两条发言者 + 内容片段
+    const previewParts = combinedMessages.slice(0, 2).map(cm => {
+        const name = cm.senderName || (cm.role === "user" ? "我" : meta.characterName);
+        const text = cm.mediaType
+            ? `[${cm.mediaType}]`
+            : cm.content.slice(0, 20);
+        return `${name}: ${text}`;
+    });
+    const summary = previewParts.join(" / ") + (msgs.length > 2 ? ` 等${msgs.length}条` : "");
+
+    const first = msgs[0];
+    const item: FavoriteItem = {
+        id: generateFavoriteId(),
+        originalMessageId: first.id,
+        sessionId: first.sessionId,
+        contactId: meta.contactId,
+        characterName: meta.characterName,
+        characterAvatar: meta.characterAvatar,
+        userAvatar: meta.userAvatar,
+        userName: meta.userName,
+        isGroup: meta.isGroup,
+        groupName: meta.groupName,
+        role: first.role,
+        mediaType: undefined,
+        content: summary,
+        isCombined: true,
+        combinedMessages,
+        originalCreatedAt: first.createdAt,
+        favoritedAt: new Date().toISOString(),
+    };
+    await favDb.favorites.put(item);
+    return item;
+}
+
+// ── 删除 ──────────────────────────────────
+
 export async function removeFavorite(id: string): Promise<void> {
     await favDb.favorites.delete(id);
 }
 
 // ── 读取 ──────────────────────────────────
 
-/**
- * 加载所有收藏，按收藏时间倒序。
- */
 export async function loadAllFavorites(): Promise<FavoriteItem[]> {
     const all = await favDb.favorites.toArray();
     return all.sort((a, b) => b.favoritedAt.localeCompare(a.favoritedAt));
 }
 
-/**
- * 按 contactId 过滤收藏，按收藏时间倒序。
- */
 export async function loadFavoritesByContact(contactId: string): Promise<FavoriteItem[]> {
     const results = await favDb.favorites
         .where("contactId")
@@ -121,21 +241,6 @@ export async function loadFavoritesByContact(contactId: string): Promise<Favorit
     return results.sort((a, b) => b.favoritedAt.localeCompare(a.favoritedAt));
 }
 
-/**
- * 检查某条原始消息是否已被收藏（按 originalMessageId）。
- */
-export async function isMessageFavorited(originalMessageId: string): Promise<boolean> {
-    const count = await favDb.favorites
-        .where("id")
-        .startsWith("fav_") // 全表扫描退路
-        .filter(item => item.originalMessageId === originalMessageId)
-        .count();
-    return count > 0;
-}
-
-/**
- * 获取收藏总数。
- */
 export async function getFavoritesCount(): Promise<number> {
     return favDb.favorites.count();
 }
