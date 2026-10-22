@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Star, Trash2, ChevronDown, ChevronUp, Play, Pause } from "lucide-react";
-import { PageShell } from "@/components/ui/page-shell";
+import { Star, Trash2, ChevronDown, ChevronUp, Play, Pause, ChevronLeft } from "lucide-react";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
+import { MediaPreviewOverlay } from "./media-preview-overlay";
 import {
     loadAllFavorites,
     removeFavorite,
@@ -32,10 +32,7 @@ function getPreviewText(
     mediaData?: FavoriteItem["mediaData"]
 ): string {
     if (mediaType) {
-        if (mediaType === "audio") {
-            const label = mediaData?.label;
-            return label ? label : "[语音]";
-        }
+        if (mediaType === "audio") return mediaData?.label || "[语音]";
         if (mediaType === "image") {
             const desc = mediaData?.label || mediaData?.imageGenerationPrompt;
             return desc ? `[图片] ${desc}` : "[图片]";
@@ -60,28 +57,19 @@ function formatFavoriteTime(iso: string): string {
 
 // ── 语音播放组件 ──────────────────────────
 
-function VoicePlayer({ src, duration, label }: {
-    src: string;
-    duration?: number;
-    label?: string;
-}) {
+function VoicePlayer({ src, duration, label }: { src: string; duration?: number; label?: string }) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playing, setPlaying] = useState(false);
-
     const displayDur = duration || Math.max(2, Math.ceil((label?.length || 4) / 4));
     const barCount = Math.min(Math.max(4, Math.round(displayDur / 2)), 9);
     const barHeights = Array.from({ length: barCount }, (_, i) => {
         const center = (barCount - 1) / 2;
-        const dist = Math.abs(i - center);
-        return Math.max(6, Math.round(15 - dist * 2.2));
+        return Math.max(6, Math.round(15 - Math.abs(i - center) * 2.2));
     });
 
     const toggle = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
-        if (playing && audioRef.current) {
-            audioRef.current.pause();
-            return;
-        }
+        if (playing && audioRef.current) { audioRef.current.pause(); return; }
         const audio = new Audio(src);
         audioRef.current = audio;
         setPlaying(true);
@@ -99,11 +87,9 @@ function VoicePlayer({ src, duration, label }: {
     useEffect(() => () => { audioRef.current?.pause(); }, []);
 
     return (
-        <div
-            className="voice-msg-bubble cursor-pointer"
+        <div className="voice-msg-bubble cursor-pointer"
             style={{ minWidth: `${Math.min(60 + displayDur * 8, 200)}px` }}
-            onClick={toggle}
-        >
+            onClick={toggle}>
             <div className="voice-msg-icon-shell">
                 <div className="voice-msg-icon">
                     {playing
@@ -112,13 +98,35 @@ function VoicePlayer({ src, duration, label }: {
                 </div>
             </div>
             <div className="voice-msg-bars" {...(playing ? { "data-playing": "" } : {})}>
-                {barHeights.map((height, i) => (
-                    <div key={i} className="voice-msg-bar"
-                        style={{ height: `${height}px`, animationDelay: `${i * 0.08}s` }} />
+                {barHeights.map((h, i) => (
+                    <div key={i} className="voice-msg-bar" style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }} />
                 ))}
             </div>
             <span className="voice-msg-dur">{displayDur}"</span>
         </div>
+    );
+}
+
+// ── 图片展示（可点击放大） ────────────────
+
+function FavImage({ src, alt, className }: { src: string; alt?: string; className?: string }) {
+    const [preview, setPreview] = useState(false);
+    return (
+        <>
+            <img
+                src={src}
+                alt={alt || "收藏图片"}
+                className={`cursor-pointer active:opacity-80 ${className || ""}`}
+                onClick={(e) => { e.stopPropagation(); setPreview(true); }}
+            />
+            {preview && (
+                <MediaPreviewOverlay
+                    imageUrl={src}
+                    saveFilename="收藏图片.jpg"
+                    onClose={() => setPreview(false)}
+                />
+            )}
+        </>
     );
 }
 
@@ -133,7 +141,7 @@ function CombinedMessageRow({ cm, userName, characterName, characterAvatar, user
 }) {
     const isUser = cm.role === "user";
     const name = cm.senderName || (isUser ? (userName || "我") : characterName);
-    const avatarSrc = isUser ? userAvatar : (characterAvatar || undefined);
+    const avatarSrc = isUser ? userAvatar : characterAvatar;
     const isAudio = cm.mediaType === "audio";
     const isImage = cm.mediaType === "image";
 
@@ -149,7 +157,7 @@ function CombinedMessageRow({ cm, userName, characterName, characterAvatar, user
                 ) : isAudio ? (
                     <div className="ts-13 text-[var(--c-text)] opacity-50 px-3 py-1.5 rounded-2xl bg-[var(--c-input)]">[语音·未固化]</div>
                 ) : isImage && cm.fixedBlob ? (
-                    <img src={cm.fixedBlob} alt="图片" className="max-w-full rounded-xl max-h-[120px] object-contain" />
+                    <FavImage src={cm.fixedBlob} className="max-w-full rounded-xl max-h-[120px] object-contain" />
                 ) : (
                     <div className={`ts-13 text-[var(--c-text)] leading-relaxed px-3 py-1.5 rounded-2xl whitespace-pre-wrap break-words ${
                         isUser ? "bg-[var(--c-icon-active)]/15 rounded-tr-md" : "bg-[var(--c-input)] rounded-tl-md"
@@ -170,7 +178,6 @@ function CombinedMessageRow({ cm, userName, characterName, characterAvatar, user
 function FavoriteItemCard({ item, onDelete }: { item: FavoriteItem; onDelete: (id: string) => void }) {
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [expanded, setExpanded] = useState(false);
-
     const avatarSrc = item.role === "user" ? item.userAvatar : item.characterAvatar;
     const senderName = item.role === "user" ? (item.userName || "我") : item.characterName;
     const headerName = item.isCombined
@@ -178,6 +185,7 @@ function FavoriteItemCard({ item, onDelete }: { item: FavoriteItem; onDelete: (i
         : senderName;
     const headerAvatar = item.isCombined ? item.characterAvatar : avatarSrc;
     const isAudio = item.mediaType === "audio";
+    const isImage = item.mediaType === "image";
 
     return (
         <div className="bg-[var(--c-card)] rounded-2xl mx-4 mb-3 overflow-hidden"
@@ -237,8 +245,8 @@ function FavoriteItemCard({ item, onDelete }: { item: FavoriteItem; onDelete: (i
                             <p className="ts-13 text-[var(--c-text)] opacity-70 leading-relaxed">{item.mediaData.label}</p>
                         )}
                     </div>
-                ) : item.mediaType === "image" && item.fixedBlob ? (
-                    <img src={item.fixedBlob} alt="收藏图片" className="max-w-full rounded-xl max-h-[180px] object-contain" />
+                ) : isImage && item.fixedBlob ? (
+                    <FavImage src={item.fixedBlob} className="max-w-full rounded-xl max-h-[220px] object-contain" />
                 ) : (
                     <p className="ts-14 text-[var(--c-text)] leading-relaxed whitespace-pre-wrap break-words line-clamp-6">
                         {getPreviewText(item.mediaType, item.content, item.mediaData)}
@@ -279,8 +287,7 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
     const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeContactId, setActiveContactId] = useState<string | null>(defaultContactId || null);
-    // 列表滚动容器的 ref，切 Tab 时滚回顶部
-    const listRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
     const isSingleMode = !!defaultContactId;
     const pageTitle = title ?? (isSingleMode ? "专属收藏夹" : "收藏夹");
@@ -292,9 +299,8 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
         for (const item of favorites) {
             const cid = item.contactId;
             countMap.set(cid, (countMap.get(cid) || 0) + 1);
-            if (!nameMap.has(cid)) {
+            if (!nameMap.has(cid))
                 nameMap.set(cid, item.isGroup ? (item.groupName || item.characterName) : item.characterName);
-            }
         }
         return Array.from(countMap.entries())
             .map(([contactId, count]) => ({ contactId, name: nameMap.get(contactId) || contactId, count }))
@@ -306,14 +312,10 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
         [favorites, activeContactId]
     );
 
-    // 切 Tab 时滚回顶部，防止 sticky Tab 栏被内容遮住
+    // 切 Tab：更新过滤 + 立即滚回列表顶部
     const handleTabChange = useCallback((contactId: string | null) => {
         setActiveContactId(contactId);
-        // 找 PageShell 渲染出来的 .page-body 滚动容器向上滚
-        const scrollEl = listRef.current?.closest(".page-body") as HTMLElement | null;
-        if (scrollEl) {
-            scrollEl.scrollTo({ top: 0, behavior: "instant" });
-        }
+        scrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }, []);
 
     const loadFavorites = useCallback(async () => {
@@ -332,11 +334,37 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
         } catch (err) { console.error("[ChatFavorites] 删除失败:", err); }
     }, []);
 
+    // 安全区高度（iOS 刘海/动态岛）
+    const [safeTop, setSafeTop] = useState(0);
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const raw = getComputedStyle(document.documentElement)
+            .getPropertyValue("--sat") || "0px";
+        const parsed = parseFloat(raw);
+        setSafeTop(Number.isFinite(parsed) ? parsed : 0);
+    }, []);
+
+    const showTabs = !isSingleMode && contactTabs.length > 1;
+
     return (
-        <PageShell title={pageTitle} onBack={onBack} className="absolute inset-0 z-[100]">
-            {/* Tab 筛选栏：仅全局模式且有多个角色时显示 */}
-            {!isSingleMode && contactTabs.length > 1 && (
-                <div className="sticky top-0 z-10 bg-[var(--c-page-body-bg)] px-4 pt-2 pb-3 flex gap-2 overflow-x-auto scrollbar-none border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
+        // 完全自管布局：flex 列，header 固定，Tab 栏固定，列表独立滚动
+        <div className="absolute inset-0 z-[100] flex flex-col bg-[var(--c-page-body-bg)]">
+
+            {/* ── Header（复刻 PageShell 样式） ── */}
+            <header className="page-header shrink-0" data-ui="header">
+                <div className="page-header-safe-area" />
+                <div className="page-header-content">
+                    <button className="page-back-btn" type="button" onClick={onBack} aria-label="返回">
+                        <ChevronLeft size={24} strokeWidth={1.5} />
+                    </button>
+                    <span className="page-title">{pageTitle}</span>
+                    <span style={{ width: 40 }} />
+                </div>
+            </header>
+
+            {/* ── Tab 筛选栏（不参与滚动） ── */}
+            {showTabs && (
+                <div className="shrink-0 bg-[var(--c-page-body-bg)] px-4 pt-2 pb-3 flex gap-2 overflow-x-auto scrollbar-none border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
                     <button
                         onClick={() => handleTabChange(null)}
                         className={`shrink-0 px-3 py-1.5 rounded-full ts-13 font-semibold transition-all ${
@@ -362,30 +390,32 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
                 </div>
             )}
 
-            {/* 列表主体 */}
-            <div ref={listRef} className="pt-3 pb-8">
-                {loading ? (
-                    <div className="flex justify-center items-center py-20 opacity-40">
-                        <span className="ts-14 text-[var(--c-text)]">加载中...</span>
-                    </div>
-                ) : displayedFavorites.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-20 gap-3 opacity-40">
-                        <Star size={36} strokeWidth={1.25} className="text-[var(--c-icon)]" />
-                        <span className="ts-14 text-[var(--c-text)]">
-                            {activeContactId ? "这个角色还没有收藏" : "还没有收藏任何消息"}
-                        </span>
-                        {!activeContactId && (
-                            <span className="ts-12 text-[var(--c-text)] opacity-70 text-center px-8 leading-relaxed">
-                                长按气泡选择「收藏」，可单条或多选合并保存
+            {/* ── 列表（独立滚动容器） ── */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
+                <div className="pt-3 pb-8">
+                    {loading ? (
+                        <div className="flex justify-center items-center py-20 opacity-40">
+                            <span className="ts-14 text-[var(--c-text)]">加载中...</span>
+                        </div>
+                    ) : displayedFavorites.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 gap-3 opacity-40">
+                            <Star size={36} strokeWidth={1.25} className="text-[var(--c-icon)]" />
+                            <span className="ts-14 text-[var(--c-text)]">
+                                {activeContactId ? "这个角色还没有收藏" : "还没有收藏任何消息"}
                             </span>
-                        )}
-                    </div>
-                ) : (
-                    displayedFavorites.map(item => (
-                        <FavoriteItemCard key={item.id} item={item} onDelete={handleDelete} />
-                    ))
-                )}
+                            {!activeContactId && (
+                                <span className="ts-12 text-[var(--c-text)] opacity-70 text-center px-8 leading-relaxed">
+                                    长按气泡选择「收藏」，可单条或多选合并保存
+                                </span>
+                            )}
+                        </div>
+                    ) : (
+                        displayedFavorites.map(item => (
+                            <FavoriteItemCard key={item.id} item={item} onDelete={handleDelete} />
+                        ))
+                    )}
+                </div>
             </div>
-        </PageShell>
+        </div>
     );
 }
