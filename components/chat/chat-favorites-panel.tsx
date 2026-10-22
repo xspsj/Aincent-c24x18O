@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Star, Trash2, ChevronDown, ChevronUp, Play, Pause, ChevronLeft, X, Download } from "lucide-react";
+import { Star, Trash2, ChevronDown, ChevronUp, Play, Pause, ChevronLeft } from "lucide-react";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
 import {
     loadAllFavorites,
@@ -54,63 +54,6 @@ function formatFavoriteTime(iso: string): string {
     return d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
-// ── 图片全屏预览层（面板内部 absolute，不依赖 portal/fixed） ──
-
-function ImagePreviewLayer({ src, onClose }: { src: string; onClose: () => void }) {
-    const [saving, setSaving] = useState(false);
-
-    const handleSave = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (saving) return;
-        setSaving(true);
-        try {
-            const { downloadUrl } = await import("@/lib/download-utils");
-            await downloadUrl(src, "收藏图片.jpg");
-        } catch { /* ignore */ }
-        finally { setSaving(false); }
-    };
-
-    return (
-        <div
-            className="absolute inset-0 z-[200] flex flex-col items-center justify-center"
-            style={{ background: "rgba(0,0,0,0.88)" }}
-            onClick={onClose}
-        >
-            {/* 关闭按钮 */}
-            <button
-                type="button"
-                className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.15)" }}
-                onClick={(e) => { e.stopPropagation(); onClose(); }}
-                aria-label="关闭"
-            >
-                <X size={20} color="#fff" strokeWidth={2} />
-            </button>
-
-            {/* 图片 */}
-            <img
-                src={src}
-                alt="收藏图片"
-                className="max-w-full max-h-[75%] object-contain rounded-lg"
-                onClick={(e) => e.stopPropagation()}
-                style={{ userSelect: "none", WebkitUserSelect: "none" }}
-            />
-
-            {/* 保存按钮 */}
-            <button
-                type="button"
-                className="mt-6 flex items-center gap-2 px-5 py-2.5 rounded-full ts-14 font-semibold"
-                style={{ background: "rgba(255,255,255,0.15)", color: "#fff", backdropFilter: "blur(8px)" }}
-                onClick={handleSave}
-                disabled={saving}
-            >
-                <Download size={16} strokeWidth={2} />
-                {saving ? "保存中..." : "保存至相册"}
-            </button>
-        </div>
-    );
-}
-
 // ── 语音播放组件 ──────────────────────────
 
 function VoicePlayer({ src, duration, label }: { src: string; duration?: number; label?: string }) {
@@ -155,7 +98,8 @@ function VoicePlayer({ src, duration, label }: { src: string; duration?: number;
             </div>
             <div className="voice-msg-bars" {...(playing ? { "data-playing": "" } : {})}>
                 {barHeights.map((h, i) => (
-                    <div key={i} className="voice-msg-bar" style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }} />
+                    <div key={i} className="voice-msg-bar"
+                        style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }} />
                 ))}
             </div>
             <span className="voice-msg-dur">{displayDur}"</span>
@@ -163,15 +107,30 @@ function VoicePlayer({ src, duration, label }: { src: string; duration?: number;
     );
 }
 
+// ── 收藏图片：不阻止长按，让 iOS 原生菜单「保存到照片」直接可用 ──
+
+function FavImage({ src, className }: { src: string; className?: string }) {
+    // 不加 onClick / pointerEvents:none / WebkitTouchCallout:none
+    // iOS Safari 长按 <img> 会弹出「保存到照片 / 共享 / 拷贝」原生菜单
+    return (
+        <img
+            src={src}
+            alt="收藏图片"
+            className={className}
+            // draggable={false} 会阻止 PC 拖拽，但不影响 iOS 长按保存
+            draggable={false}
+        />
+    );
+}
+
 // ── 合并收藏展开后每条消息的行 ──────────────
 
-function CombinedMessageRow({ cm, userName, characterName, characterAvatar, userAvatar, onImageClick }: {
+function CombinedMessageRow({ cm, userName, characterName, characterAvatar, userAvatar }: {
     cm: CombinedMessageSnapshot;
     userName?: string;
     characterName: string;
     characterAvatar?: string;
     userAvatar?: string;
-    onImageClick: (src: string) => void;
 }) {
     const isUser = cm.role === "user";
     const name = cm.senderName || (isUser ? (userName || "我") : characterName);
@@ -191,12 +150,7 @@ function CombinedMessageRow({ cm, userName, characterName, characterAvatar, user
                 ) : isAudio ? (
                     <div className="ts-13 text-[var(--c-text)] opacity-50 px-3 py-1.5 rounded-2xl bg-[var(--c-input)]">[语音·未固化]</div>
                 ) : isImage && cm.fixedBlob ? (
-                    <img
-                        src={cm.fixedBlob}
-                        alt="图片"
-                        className="max-w-full rounded-xl max-h-[120px] object-contain cursor-pointer active:opacity-75"
-                        onClick={(e) => { e.stopPropagation(); onImageClick(cm.fixedBlob!); }}
-                    />
+                    <FavImage src={cm.fixedBlob} className="max-w-full rounded-xl max-h-[120px] object-contain" />
                 ) : (
                     <div className={`ts-13 text-[var(--c-text)] leading-relaxed px-3 py-1.5 rounded-2xl whitespace-pre-wrap break-words ${
                         isUser ? "bg-[var(--c-icon-active)]/15 rounded-tr-md" : "bg-[var(--c-input)] rounded-tl-md"
@@ -214,10 +168,9 @@ function CombinedMessageRow({ cm, userName, characterName, characterAvatar, user
 
 // ── 单条收藏卡片 ──────────────────────────
 
-function FavoriteItemCard({ item, onDelete, onImageClick }: {
+function FavoriteItemCard({ item, onDelete }: {
     item: FavoriteItem;
     onDelete: (id: string) => void;
-    onImageClick: (src: string) => void;
 }) {
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [expanded, setExpanded] = useState(false);
@@ -246,10 +199,14 @@ function FavoriteItemCard({ item, onDelete, onImageClick }: {
                         )}
                     </span>
                     <span className="ts-11 text-[var(--c-text)] opacity-50 leading-tight">
-                        {new Date(item.originalCreatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        {new Date(item.originalCreatedAt).toLocaleString("zh-CN", {
+                            month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+                        })}
                     </span>
                 </div>
-                <span className="ts-11 text-[var(--c-text)] opacity-40 shrink-0">{formatFavoriteTime(item.favoritedAt)}收藏</span>
+                <span className="ts-11 text-[var(--c-text)] opacity-40 shrink-0">
+                    {formatFavoriteTime(item.favoritedAt)}收藏
+                </span>
             </div>
 
             {/* 内容 */}
@@ -266,13 +223,14 @@ function FavoriteItemCard({ item, onDelete, onImageClick }: {
                             {expanded ? <ChevronUp size={13} strokeWidth={2} /> : <ChevronDown size={13} strokeWidth={2} />}
                         </button>
                         {!expanded && (
-                            <p className="ts-13 text-[var(--c-text)] opacity-70 leading-relaxed line-clamp-2">{item.content}</p>
+                            <p className="ts-13 text-[var(--c-text)] opacity-70 leading-relaxed line-clamp-2">
+                                {item.content}
+                            </p>
                         )}
                         {expanded && item.combinedMessages?.map((cm, i) => (
                             <CombinedMessageRow key={i} cm={cm}
                                 userName={item.userName} characterName={item.characterName}
-                                characterAvatar={item.characterAvatar} userAvatar={item.userAvatar}
-                                onImageClick={onImageClick} />
+                                characterAvatar={item.characterAvatar} userAvatar={item.userAvatar} />
                         ))}
                     </div>
                 ) : isAudio && item.fixedBlob ? (
@@ -290,12 +248,9 @@ function FavoriteItemCard({ item, onDelete, onImageClick }: {
                         )}
                     </div>
                 ) : isImage && item.fixedBlob ? (
-                    <img
-                        src={item.fixedBlob}
-                        alt="收藏图片"
-                        className="max-w-full rounded-xl max-h-[220px] object-contain cursor-pointer active:opacity-75"
-                        onClick={(e) => { e.stopPropagation(); onImageClick(item.fixedBlob!); }}
-                    />
+                    // 直接渲染图片，不加任何 JS 事件
+                    // iOS Safari 长按图片会弹出「保存到照片 / 共享 / 拷贝」原生菜单
+                    <FavImage src={item.fixedBlob} className="max-w-full rounded-xl max-h-[220px] object-contain" />
                 ) : (
                     <p className="ts-14 text-[var(--c-text)] leading-relaxed whitespace-pre-wrap break-words line-clamp-6">
                         {getPreviewText(item.mediaType, item.content, item.mediaData)}
@@ -314,8 +269,10 @@ function FavoriteItemCard({ item, onDelete, onImageClick }: {
                 </div>
                 {confirmDelete ? (
                     <div className="flex items-center gap-2">
-                        <button className="ts-12 text-[var(--c-text)] opacity-60 px-2 py-1" onClick={() => setConfirmDelete(false)}>取消</button>
-                        <button className="ts-12 text-[var(--c-danger)] font-semibold px-2 py-1" onClick={() => onDelete(item.id)}>确认删除</button>
+                        <button className="ts-12 text-[var(--c-text)] opacity-60 px-2 py-1"
+                            onClick={() => setConfirmDelete(false)}>取消</button>
+                        <button className="ts-12 text-[var(--c-danger)] font-semibold px-2 py-1"
+                            onClick={() => onDelete(item.id)}>确认删除</button>
                     </div>
                 ) : (
                     <button className="flex items-center gap-1 ts-12 text-[var(--c-text)] opacity-40 active:opacity-70 p-1"
@@ -336,8 +293,6 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
     const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeContactId, setActiveContactId] = useState<string | null>(defaultContactId || null);
-    // 图片预览：提升到面板层，overlay 用 absolute 不依赖 fixed/portal
-    const [previewSrc, setPreviewSrc] = useState<string | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     const isSingleMode = !!defaultContactId;
@@ -450,21 +405,11 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
                         </div>
                     ) : (
                         displayedFavorites.map(item => (
-                            <FavoriteItemCard
-                                key={item.id}
-                                item={item}
-                                onDelete={handleDelete}
-                                onImageClick={(src) => setPreviewSrc(src)}
-                            />
+                            <FavoriteItemCard key={item.id} item={item} onDelete={handleDelete} />
                         ))
                     )}
                 </div>
             </div>
-
-            {/* 图片全屏预览（absolute 不依赖 portal/fixed，不受 transform 影响） */}
-            {previewSrc && (
-                <ImagePreviewLayer src={previewSrc} onClose={() => setPreviewSrc(null)} />
-            )}
         </div>
     );
 }
