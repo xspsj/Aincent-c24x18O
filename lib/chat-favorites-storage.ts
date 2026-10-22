@@ -17,12 +17,12 @@ export type CombinedMessageSnapshot = {
     mediaType?: ChatMessage["mediaType"];
     mediaData?: ChatMessage["mediaData"];
     createdAt: string;
-    fixedBlob?: string; // 该条消息的图片固化数据
+    fixedBlob?: string; // 该条消息的图片/音频固化数据（base64 data URL）
 };
 
 export type FavoriteItem = {
     id: string;               // 收藏记录唯一 ID
-    originalMessageId: string; // 原消息 ID（单条时有意义，合并时取第一条）
+    originalMessageId: string;
     sessionId: string;
     contactId: string;        // 角色 ID（单聊=contactId，群聊=session.id）
     characterName: string;
@@ -33,10 +33,10 @@ export type FavoriteItem = {
     groupName?: string;
     role: ChatMessage["role"];
     mediaType: ChatMessage["mediaType"];
-    content: string;          // 单条正文 / 合并时的摘要预览
+    content: string;
     mediaData?: ChatMessage["mediaData"];
     mediaUrl?: string;
-    fixedBlob?: string;       // 单条消息的图片/媒体固化 base64
+    fixedBlob?: string;       // 单条消息的图片/音频固化 base64 data URL
     // 合并收藏
     isCombined?: boolean;
     combinedMessages?: CombinedMessageSnapshot[];
@@ -60,54 +60,72 @@ class FavoritesDatabase extends Dexie {
 
 const favDb = new FavoritesDatabase();
 
-// ── 图片固化工具 ──────────────────────────
+// ── 媒体固化工具 ──────────────────────────
 
 /**
- * 尝试把消息里的图片 URL/ref 转成 base64 data URL 固化存储。
+ * 尝试把消息里的图片/音频提取成 base64 data URL 固化存储。
  * 失败时静默返回 undefined，不阻断收藏。
+ *
+ * 支持的媒体类型：
+ * - audio（语音条）：mediaUrl 直接就是 data URL，存下来就好
+ * - image（AI 生成图/用户上传图）：走图片路径多条分支
  */
-async function tryFixImageBlob(msg: ChatMessage): Promise<string | undefined> {
+async function tryFixMediaBlob(msg: ChatMessage): Promise<string | undefined> {
+    // ── 语音固化：最简单的路径 ────────────────
+    // Minimax 合成后的音频和用户录制的语音都直接存为 data: URL 在 mediaUrl 里
+    if (msg.mediaType === "audio") {
+        const url = msg.mediaUrl;
+        if (!url) return undefined;
+        // 已经是 base64 data URL：直接存，不需要任何转换
+        if (url.startsWith("data:")) return url;
+        // blob: URL（用户录音尚未落库时可能是这种形式）：fetch 转 base64
+        if (url.startsWith("blob:")) {
+            try {
+                const resp = await fetch(url);
+                const blob = await resp.blob();
+                return blobToBase64DataUrl(blob, blob.type || "audio/mpeg");
+            } catch { return undefined; }
+        }
+        return undefined;
+    }
+
+    // ── 图片固化 ───────────────────────────────
     if (msg.mediaType !== "image") return undefined;
 
     const url = msg.mediaUrl || msg.mediaData?.imageGenerationMediaRef;
     if (!url) return undefined;
 
     try {
-        // 路径1: media-store:// 引用 → 从 MediaCacheDB 读 blob
+        // 路径1: media-store:// 引用 → 从 MediaCacheDB 读 Blob
         if (isMediaStoreRef(url)) {
             const result = await loadMediaBlob(url);
             if (!result) return undefined;
-            return await blobToBase64DataUrl(result.blob, result.mimeType);
+            return blobToBase64DataUrl(result.blob, result.mimeType);
         }
-
         // 路径2: IDB asset key（chat-asset-storage）→ 直接返回 data URL
         if (!url.startsWith("http") && !url.startsWith("data:") && !url.startsWith("blob:")) {
             const dataUrl = await getChatImageFromIndexedDB(url);
             if (dataUrl) return dataUrl;
         }
-
         // 路径3: blob: URL → fetch 转 base64
         if (url.startsWith("blob:")) {
             const resp = await fetch(url);
             const blob = await resp.blob();
-            return await blobToBase64DataUrl(blob, blob.type);
+            return blobToBase64DataUrl(blob, blob.type);
         }
-
         // 路径4: data: URL → 直接用
         if (url.startsWith("data:")) return url;
+    } catch { /* 静默 */ }
 
-    } catch {
-        // 任何失败都静默处理，不影响收藏
-    }
     return undefined;
 }
 
-async function blobToBase64DataUrl(blob: Blob, mimeType: string): Promise<string> {
+function blobToBase64DataUrl(blob: Blob, mimeType: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = reject;
-        reader.readAsDataURL(blob);
+        reader.readAsDataURL(new Blob([blob], { type: mimeType || blob.type }));
     });
 }
 
@@ -129,7 +147,7 @@ export async function addFavorite(
         groupName?: string;
     }
 ): Promise<FavoriteItem> {
-    const fixedBlob = await tryFixImageBlob(msg);
+    const fixedBlob = await tryFixMediaBlob(msg);
 
     const item: FavoriteItem = {
         id: generateFavoriteId(),
@@ -173,8 +191,8 @@ export async function addCombinedFavorite(
 ): Promise<FavoriteItem> {
     if (msgs.length === 0) throw new Error("消息列表不能为空");
 
-    // 并行固化所有图片
-    const fixedBlobs = await Promise.all(msgs.map(m => tryFixImageBlob(m)));
+    // 并行固化所有媒体（图片 + 语音）
+    const fixedBlobs = await Promise.all(msgs.map(m => tryFixMediaBlob(m)));
 
     const combinedMessages: CombinedMessageSnapshot[] = msgs.map((m, i) => ({
         role: m.role,
@@ -186,12 +204,14 @@ export async function addCombinedFavorite(
         fixedBlob: fixedBlobs[i],
     }));
 
-    // 摘要预览：前两条发言者 + 内容片段
+    // 摘要预览：前两条
     const previewParts = combinedMessages.slice(0, 2).map(cm => {
         const name = cm.senderName || (cm.role === "user" ? "我" : meta.characterName);
-        const text = cm.mediaType
-            ? `[${cm.mediaType}]`
-            : cm.content.slice(0, 20);
+        const text = cm.mediaType === "audio"
+            ? `[语音${cm.mediaData?.label ? ` ${cm.mediaData.label}` : ""}]`
+            : cm.mediaType
+                ? `[${cm.mediaType}]`
+                : cm.content.slice(0, 20);
         return `${name}: ${text}`;
     });
     const summary = previewParts.join(" / ") + (msgs.length > 2 ? ` 等${msgs.length}条` : "");
