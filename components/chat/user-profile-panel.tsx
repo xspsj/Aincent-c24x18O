@@ -59,12 +59,14 @@ import {
     Send,
     X,
     SlidersHorizontal,
+    Star,
     Sticker,
     ThumbsUp,
     Trash2,
     User,
     type LucideIcon,
 } from "lucide-react";
+import { ChatFavoritesPanel } from "./chat-favorites-panel";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
 
 type UserProfilePanelProps = {
@@ -159,6 +161,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [showCSSEditor, setShowCSSEditor] = useState(false);
     const [showMomentsSettings, setShowMomentsSettings] = useState(false);
     const [showWalletPanel, setShowWalletPanel] = useState(false);
+    const [showFavoritesGlobal, setShowFavoritesGlobal] = useState(false);
     const [identity, setIdentity] = useState<UserIdentity | null>(null);
     const [notifEnabled, setNotifEnabled] = useState(false);
     const [notifHint, setNotifHint] = useState<string | null>(null);
@@ -291,6 +294,9 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     if (showWalletPanel) {
         return <WalletPanel onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowWalletPanel(false); }} />;
     }
+    if (showFavoritesGlobal) {
+        return <ChatFavoritesPanel title="收藏夹" onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowFavoritesGlobal(false); }} />;
+    }
 
     return (
         <>
@@ -408,6 +414,12 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <Sticker size={22} strokeWidth={2} />
                             </div>
                             <span className="ts-12 font-semibold text-[var(--c-text-title)]">表情包仓储</span>
+                        </button>
+                        <button className="flex flex-col items-center gap-2 flex-1" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowFavoritesGlobal(true); }}>
+                            <div className="w-[42px] h-[42px] rounded-[14px] bg-[#f5a623]/15 text-[#f5a623] flex items-center justify-center">
+                                <Star size={22} strokeWidth={2} />
+                            </div>
+                            <span className="ts-12 font-semibold text-[var(--c-text-title)]">收藏夹</span>
                         </button>
                         <button className="flex flex-col items-center gap-2 flex-1" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowCSSEditor(true); }}>
                             <div className="w-[42px] h-[42px] rounded-[14px] bg-[color-mix(in_srgb,var(--c-danger)_15%,transparent)] text-[var(--c-danger)] flex items-center justify-center">

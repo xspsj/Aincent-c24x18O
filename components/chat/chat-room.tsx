@@ -52,7 +52,7 @@ import { useKeyboardDismissAutoSend } from "@/components/chat/use-keyboard-dismi
 import { cancelBailoutKey } from "@/lib/push-bailout-client";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import type { UserIdentity } from "@/components/settings/user-identity";
-import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, X } from "lucide-react";
+import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, Star, X } from "lucide-react";
 import { setDebugChatState } from "@/lib/debug-store";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { setChatActive } from "@/lib/music-action-queue";
@@ -89,6 +89,8 @@ import { extractTextToolDirectiveText } from "@/lib/text-tool-protocol";
 import { emitChatPluginEvent, getChatPluginHookBus, runChatPluginTransform } from "@/lib/chat-plugin-hooks";
 import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin-runtime";
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
+import { addFavorite, addCombinedFavorite } from "@/lib/chat-favorites-storage";
+import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
 
 // ── Call system message detection ──────────────────────────
 // Call messages are stored with user/assistant role for correct prompt alternation,
@@ -1152,6 +1154,9 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [customPlusActions, setCustomPlusActions] = useState<RegisteredCustomAppChatPlusAction[]>(() => loadCustomAppChatPlusActions());
     const [activeCustomChatPlus, setActiveCustomChatPlus] = useState<ActiveCustomChatPlus | null>(null);
     const [showSettings, setShowSettings] = useState(false);
+    const [showFavorites, setShowFavorites] = useState(false);
+    const [isFavoriteSelectMode, setIsFavoriteSelectMode] = useState(false);
+    const [favoriteSelectedIds, setFavoriteSelectedIds] = useState<Set<string>>(new Set());
     const [showVoiceCall, setShowVoiceCall] = useState(false);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [callMinimized, setCallMinimized] = useState(false);
@@ -2702,6 +2707,118 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const showPersistentChatToast = (text: string) => {
         clearTimeout(chatToastTimer.current);
         setChatToast(text);
+    };
+
+    // ── 收藏相关 ──────────────────────────────────
+
+    const buildFavoriteMeta = () => ({
+        contactId: session.isGroup ? session.id : session.contactId,
+        characterName: session.isGroup ? (session.groupName || "群聊") : (character?.name || "对方"),
+        characterAvatar: session.isGroup ? undefined : (character?.avatar || undefined),
+        userAvatar: userIdentity?.avatarUrl || undefined,
+        userName: userIdentity?.name || "我",
+        isGroup: !!session.isGroup,
+        groupName: session.isGroup ? (session.groupName || undefined) : undefined,
+    });
+
+    const getFavSenderName = (m: ChatMessage): string => {
+        if (m.role === "user") return userIdentity?.name || "我";
+        if (session.isGroup && m.senderName) return m.senderName;
+        return character?.name || "对方";
+    };
+
+    /**
+     * 收藏语音前先确保音频已合成落库。
+     * 如果 mediaUrl 已有 data URL 直接返回消息；
+     * 否则触发合成后等待结果，返回带 mediaUrl 的最新版本。
+     */
+    const ensureVoiceAudio = async (msg: ChatMessage): Promise<ChatMessage> => {
+        if (msg.mediaType !== "audio" || msg.role === "user") return msg;
+        // 已经有 data URL，直接用
+        if (msg.mediaUrl?.startsWith("data:")) return msg;
+        // 没有 characterId 无法合成
+        if (!session.contactId && !msg.senderCharacterId) return msg;
+        const charId = msg.senderCharacterId || session.contactId;
+        const text = msg.mediaData?.label || "";
+        if (!text) return msg;
+        showPersistentChatToast("合成语音中...");
+        try {
+            const { synthesizeSpeech, resolveVoiceConfig } = await import("@/lib/tts-service");
+            const vc = resolveVoiceConfig(charId);
+            if (!vc) return msg;
+            const blob = await synthesizeSpeech(text, vc);
+            if (!blob) return msg;
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+            // 落库（复用现有函数）
+            const { persistMessageVoiceAudio } = await import("@/lib/chat-storage");
+            await persistMessageVoiceAudio(msg.id, dataUrl, text);
+            clearChatToast();
+            return { ...msg, mediaUrl: dataUrl, mediaData: { ...msg.mediaData, synthesizedFromText: text } };
+        } catch {
+            clearChatToast();
+            return msg;
+        }
+    };
+
+    const handleEnterFavoriteSelect = (m: ChatMessage) => {
+        const storedId = getStoredActionMessageId(m);
+        setActiveMessageId(null);
+        setShowEmojiPanel(false);
+        setShowStickerPanel(false);
+        setShowPlusMenu(false);
+        setIsFavoriteSelectMode(true);
+        setFavoriteSelectedIds(new Set([storedId]));
+    };
+
+    const cancelFavoriteSelect = () => {
+        setIsFavoriteSelectMode(false);
+        setFavoriteSelectedIds(new Set());
+    };
+
+    const toggleFavoriteSelected = (messageId: string) => {
+        setFavoriteSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(messageId)) next.delete(messageId);
+            else next.add(messageId);
+            return next;
+        });
+    };
+
+    const handleConfirmFavorite = async () => {
+        if (favoriteSelectedIds.size === 0) {
+            showChatToast("请先选择要收藏的消息");
+            return;
+        }
+        const meta = buildFavoriteMeta();
+        try {
+            if (favoriteSelectedIds.size === 1) {
+                const id = [...favoriteSelectedIds][0];
+                let msg = loadChatMessages(session.id).find(m => m.id === id);
+                if (!msg) throw new Error("消息不存在");
+                // 语音条：确保音频已合成再收藏
+                msg = await ensureVoiceAudio(msg);
+                await addFavorite(msg, meta);
+                showChatToast("已收藏至「专属收藏夹」");
+            } else {
+                const allMsgs = loadChatMessages(session.id);
+                let selected = allMsgs
+                    .filter(m => favoriteSelectedIds.has(m.id))
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                if (selected.length === 0) throw new Error("消息不存在");
+                // 并行确保所有语音条都有音频
+                selected = await Promise.all(selected.map(m => ensureVoiceAudio(m)));
+                await addCombinedFavorite(selected, { ...meta, getSenderName: getFavSenderName });
+                showChatToast(`已将 ${selected.length} 条消息合并收藏`);
+            }
+            cancelFavoriteSelect();
+        } catch {
+            showChatToast("收藏失败，请重试");
+        }
     };
 
     const clearStuckGeneration = () => {
@@ -4979,6 +5096,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 className="ctx-menu chat-floating-ctx-menu flex flex-col items-center gap-[6px] py-[4px] px-0"
                 data-role={m.role}>
                 <div className="flex">
+                    <button onClick={() => handleEnterFavoriteSelect(m)} className="ctx-menu-btn">收藏</button>
                     <button onClick={() => {
                         const text = m.content;
                         const fallbackCopy = () => {
@@ -5943,6 +6061,19 @@ function formatCallDurationDisplay(durationStr: string): string {
                         ...(isMultiSelected ? { "data-selected": "" } : {}),
                     } : {};
 
+                    // 收藏选择模式：点击气泡切换勾选
+                    const isFavoriteSelectable = isFavoriteSelectMode && !!selectableStoredId && !hiddenEmpty;
+                    const isFavoriteSelected = !!selectableStoredId && favoriteSelectedIds.has(selectableStoredId);
+                    const favoriteSelectWrapperProps = isFavoriteSelectable ? {
+                        onClickCapture: (e: React.MouseEvent) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleFavoriteSelected(selectableStoredId!);
+                        },
+                        "data-multi-select": "",
+                        ...(isFavoriteSelected ? { "data-selected": "" } : {}),
+                    } : {};
+
                     return (
                         <div key={msg.id} className="flex flex-col gap-4" {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
                             {showTime && (
@@ -5976,11 +6107,16 @@ function formatCallDurationDisplay(durationStr: string): string {
                                 {...(isConsecutive ? { "data-consecutive": "" } : {})}
                                 {...(activeMessageId === msg.id ? { "data-active": "" } : {})}
                                 {...(highlightMessageId === msg.id ? { "data-highlight": "" } : {})}
-                                {...multiSelectWrapperProps}
+                                {...(isFavoriteSelectable ? favoriteSelectWrapperProps : multiSelectWrapperProps)}
                             >
                                 {isMultiSelectable && (
                                     <span className="chat-multi-select-check" aria-hidden="true">
                                         {isMultiSelected && <Check size={14} strokeWidth={2.5} />}
+                                    </span>
+                                )}
+                                {isFavoriteSelectable && (
+                                    <span className="chat-multi-select-check" aria-hidden="true">
+                                        {isFavoriteSelected && <Check size={14} strokeWidth={2.5} />}
                                     </span>
                                 )}
                                 {uiRole(msg) === "system" ? (
@@ -6304,6 +6440,29 @@ function formatCallDurationDisplay(durationStr: string): string {
                 <div style={{ overflowAnchor: 'auto', height: 1 }} />
             </div>
 
+            {/* 收藏选择模式底部 bar */}
+            {isFavoriteSelectMode && (
+                <div className="chat-multi-select-bar chat-room-main-pane" data-ui="favorite-select">
+                    <button type="button" className="chat-multi-select-icon-btn" onClick={cancelFavoriteSelect} aria-label="退出收藏选择">
+                        <X size={20} strokeWidth={1.8} />
+                    </button>
+                    <div className="chat-multi-select-summary">
+                        <strong>已选 {favoriteSelectedIds.size} 条</strong>
+                        <span>{favoriteSelectedIds.size > 1 ? "将合并为一条收藏" : "点击气泡可追加选择"}</span>
+                    </div>
+                    <button
+                        type="button"
+                        className="chat-multi-select-delete-btn"
+                        style={{ background: "var(--c-icon-active)", color: "#fff", borderColor: "transparent" }}
+                        disabled={favoriteSelectedIds.size === 0}
+                        onClick={() => void handleConfirmFavorite()}
+                    >
+                        <Star size={18} strokeWidth={1.8} />
+                        收藏{favoriteSelectedIds.size > 0 ? ` ${favoriteSelectedIds.size}` : ""}
+                    </button>
+                </div>
+            )}
+
             {/* Input Bar — absolute at bottom, same layer as header */}
             {isMultiSelectMode && !offlineMode && (
                 <div className="chat-multi-select-bar chat-room-main-pane" data-ui="multi-select">
@@ -6401,6 +6560,17 @@ function formatCallDurationDisplay(durationStr: string): string {
                     onConfirm={handleMultiDeleteConfirmed}
                     onCancel={() => setShowConfirmMultiDelete(false)}
                 />
+            )}
+
+            {/* Favorites Panel */}
+            {showFavorites && wrapperRef.current?.parentElement && createPortal(
+                <div className="chat-settings-layer absolute inset-0 z-50">
+                    <ChatFavoritesPanel
+                        defaultContactId={session.isGroup ? session.id : session.contactId}
+                        onBack={() => setShowFavorites(false)}
+                    />
+                </div>,
+                wrapperRef.current.parentElement
             )}
 
             {/* Settings Panel — portaled outside session-scoped CSS, preserves chat room mount */}
