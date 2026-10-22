@@ -1155,7 +1155,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [activeCustomChatPlus, setActiveCustomChatPlus] = useState<ActiveCustomChatPlus | null>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showFavorites, setShowFavorites] = useState(false);
-    // 收藏选择模式：点「收藏」后进入，底部 bar 显示「收藏 N 条」确认按钮
     const [isFavoriteSelectMode, setIsFavoriteSelectMode] = useState(false);
     const [favoriteSelectedIds, setFavoriteSelectedIds] = useState<Set<string>>(new Set());
     const [showVoiceCall, setShowVoiceCall] = useState(false);
@@ -2712,7 +2711,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
     // ── 收藏相关 ──────────────────────────────────
 
-    /** 构建收藏用的会话元信息 */
     const buildFavoriteMeta = () => ({
         contactId: session.isGroup ? session.id : session.contactId,
         characterName: session.isGroup ? (session.groupName || "群聊") : (character?.name || "对方"),
@@ -2723,14 +2721,50 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         groupName: session.isGroup ? (session.groupName || undefined) : undefined,
     });
 
-    /** 获取消息的显示名 */
     const getFavSenderName = (m: ChatMessage): string => {
         if (m.role === "user") return userIdentity?.name || "我";
         if (session.isGroup && m.senderName) return m.senderName;
         return character?.name || "对方";
     };
 
-    /** 长按气泡点「收藏」→ 进入收藏选择模式，当前消息自动勾上 */
+    /**
+     * 收藏语音前先确保音频已合成落库。
+     * 如果 mediaUrl 已有 data URL 直接返回消息；
+     * 否则触发合成后等待结果，返回带 mediaUrl 的最新版本。
+     */
+    const ensureVoiceAudio = async (msg: ChatMessage): Promise<ChatMessage> => {
+        if (msg.mediaType !== "audio" || msg.role === "user") return msg;
+        // 已经有 data URL，直接用
+        if (msg.mediaUrl?.startsWith("data:")) return msg;
+        // 没有 characterId 无法合成
+        if (!session.contactId && !msg.senderCharacterId) return msg;
+        const charId = msg.senderCharacterId || session.contactId;
+        const text = msg.mediaData?.label || "";
+        if (!text) return msg;
+        showPersistentChatToast("合成语音中...");
+        try {
+            const { synthesizeSpeech, resolveVoiceConfig } = await import("@/lib/tts-service");
+            const vc = resolveVoiceConfig(charId);
+            if (!vc) return msg;
+            const blob = await synthesizeSpeech(text, vc);
+            if (!blob) return msg;
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+            // 落库（复用现有函数）
+            const { persistMessageVoiceAudio } = await import("@/lib/chat-storage");
+            await persistMessageVoiceAudio(msg.id, dataUrl, text);
+            clearChatToast();
+            return { ...msg, mediaUrl: dataUrl, mediaData: { ...msg.mediaData, synthesizedFromText: text } };
+        } catch {
+            clearChatToast();
+            return msg;
+        }
+    };
+
     const handleEnterFavoriteSelect = (m: ChatMessage) => {
         const storedId = getStoredActionMessageId(m);
         setActiveMessageId(null);
@@ -2741,13 +2775,11 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         setFavoriteSelectedIds(new Set([storedId]));
     };
 
-    /** 退出收藏选择模式 */
     const cancelFavoriteSelect = () => {
         setIsFavoriteSelectMode(false);
         setFavoriteSelectedIds(new Set());
     };
 
-    /** 切换收藏选择中某条消息的勾选状态 */
     const toggleFavoriteSelected = (messageId: string) => {
         setFavoriteSelectedIds(prev => {
             const next = new Set(prev);
@@ -2757,7 +2789,6 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         });
     };
 
-    /** 确认收藏：单条走 addFavorite，多条走 addCombinedFavorite */
     const handleConfirmFavorite = async () => {
         if (favoriteSelectedIds.size === 0) {
             showChatToast("请先选择要收藏的消息");
@@ -2767,16 +2798,20 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         try {
             if (favoriteSelectedIds.size === 1) {
                 const id = [...favoriteSelectedIds][0];
-                const msg = loadChatMessages(session.id).find(m => m.id === id);
+                let msg = loadChatMessages(session.id).find(m => m.id === id);
                 if (!msg) throw new Error("消息不存在");
+                // 语音条：确保音频已合成再收藏
+                msg = await ensureVoiceAudio(msg);
                 await addFavorite(msg, meta);
                 showChatToast("已收藏至「专属收藏夹」");
             } else {
                 const allMsgs = loadChatMessages(session.id);
-                const selected = allMsgs
+                let selected = allMsgs
                     .filter(m => favoriteSelectedIds.has(m.id))
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
                 if (selected.length === 0) throw new Error("消息不存在");
+                // 并行确保所有语音条都有音频
+                selected = await Promise.all(selected.map(m => ensureVoiceAudio(m)));
                 await addCombinedFavorite(selected, { ...meta, getSenderName: getFavSenderName });
                 showChatToast(`已将 ${selected.length} 条消息合并收藏`);
             }
@@ -6405,16 +6440,10 @@ function formatCallDurationDisplay(durationStr: string): string {
                 <div style={{ overflowAnchor: 'auto', height: 1 }} />
             </div>
 
-            {/* 收藏选择模式底部 bar：独立于多选删除模式 */}
+            {/* 收藏选择模式底部 bar */}
             {isFavoriteSelectMode && (
                 <div className="chat-multi-select-bar chat-room-main-pane" data-ui="favorite-select">
-                    <button
-                        type="button"
-                        className="chat-multi-select-icon-btn"
-                        onClick={cancelFavoriteSelect}
-                        aria-label="退出收藏选择"
-                        title="退出收藏选择"
-                    >
+                    <button type="button" className="chat-multi-select-icon-btn" onClick={cancelFavoriteSelect} aria-label="退出收藏选择">
                         <X size={20} strokeWidth={1.8} />
                     </button>
                     <div className="chat-multi-select-summary">
