@@ -60,16 +60,10 @@ function formatFavoriteTime(iso: string): string {
 
 // ── 语音播放组件 ──────────────────────────
 
-function VoicePlayer({
-    src,
-    duration,
-    label,
-    isUser,
-}: {
+function VoicePlayer({ src, duration, label }: {
     src: string;
     duration?: number;
     label?: string;
-    isUser?: boolean;
 }) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playing, setPlaying] = useState(false);
@@ -98,22 +92,16 @@ function VoicePlayer({
         };
         audio.onended = done;
         audio.onerror = done;
+        audio.onpause = () => setPlaying(false);
         audio.play().catch(done);
     }, [src, playing]);
 
-    useEffect(() => {
-        if (playing && audioRef.current) {
-            audioRef.current.onpause = () => setPlaying(false);
-        }
-    }, [playing]);
-
-    // 卸载时停止
     useEffect(() => () => { audioRef.current?.pause(); }, []);
 
     return (
         <div
             className="voice-msg-bubble cursor-pointer"
-            style={{ minWidth: `${Math.min(60 + displayDur * 8, 200)}px`, opacity: 1 }}
+            style={{ minWidth: `${Math.min(60 + displayDur * 8, 200)}px` }}
             onClick={toggle}
         >
             <div className="voice-msg-icon-shell">
@@ -125,11 +113,8 @@ function VoicePlayer({
             </div>
             <div className="voice-msg-bars" {...(playing ? { "data-playing": "" } : {})}>
                 {barHeights.map((height, i) => (
-                    <div
-                        key={i}
-                        className="voice-msg-bar"
-                        style={{ height: `${height}px`, animationDelay: `${i * 0.08}s` }}
-                    />
+                    <div key={i} className="voice-msg-bar"
+                        style={{ height: `${height}px`, animationDelay: `${i * 0.08}s` }} />
                 ))}
             </div>
             <span className="voice-msg-dur">{displayDur}"</span>
@@ -139,13 +124,7 @@ function VoicePlayer({
 
 // ── 合并收藏展开后每条消息的行 ──────────────
 
-function CombinedMessageRow({
-    cm,
-    userName,
-    characterName,
-    characterAvatar,
-    userAvatar,
-}: {
+function CombinedMessageRow({ cm, userName, characterName, characterAvatar, userAvatar }: {
     cm: CombinedMessageSnapshot;
     userName?: string;
     characterName: string;
@@ -155,30 +134,20 @@ function CombinedMessageRow({
     const isUser = cm.role === "user";
     const name = cm.senderName || (isUser ? (userName || "我") : characterName);
     const avatarSrc = isUser ? userAvatar : (characterAvatar || undefined);
-
     const isAudio = cm.mediaType === "audio";
     const isImage = cm.mediaType === "image";
 
     return (
         <div className={`flex gap-2 py-2 items-start ${isUser ? "flex-row-reverse" : "flex-row"}`}>
             <div className="w-7 h-7 rounded-full bg-[var(--c-input)] shrink-0 self-start flex items-center justify-center overflow-hidden mt-[2px]">
-                {avatarSrc
-                    ? <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
-                    : <ChatFallbackAvatar />}
+                {avatarSrc ? <img src={avatarSrc} alt="" className="w-full h-full object-cover" /> : <ChatFallbackAvatar />}
             </div>
             <div className={`flex flex-col max-w-[78%] ${isUser ? "items-end" : "items-start"}`}>
                 <span className="ts-11 text-[var(--c-text)] opacity-50 mb-0.5 leading-tight">{name}</span>
                 {isAudio && cm.fixedBlob ? (
-                    <VoicePlayer
-                        src={cm.fixedBlob}
-                        duration={cm.mediaData?.voiceDuration}
-                        label={cm.mediaData?.label}
-                        isUser={isUser}
-                    />
-                ) : isAudio && !cm.fixedBlob ? (
-                    <div className={`ts-13 text-[var(--c-text)] opacity-50 px-3 py-1.5 rounded-2xl bg-[var(--c-input)]`}>
-                        [语音·未固化]
-                    </div>
+                    <VoicePlayer src={cm.fixedBlob} duration={cm.mediaData?.voiceDuration} label={cm.mediaData?.label} />
+                ) : isAudio ? (
+                    <div className="ts-13 text-[var(--c-text)] opacity-50 px-3 py-1.5 rounded-2xl bg-[var(--c-input)]">[语音·未固化]</div>
                 ) : isImage && cm.fixedBlob ? (
                     <img src={cm.fixedBlob} alt="图片" className="max-w-full rounded-xl max-h-[120px] object-contain" />
                 ) : (
@@ -198,13 +167,7 @@ function CombinedMessageRow({
 
 // ── 单条收藏卡片 ──────────────────────────
 
-function FavoriteItemCard({
-    item,
-    onDelete,
-}: {
-    item: FavoriteItem;
-    onDelete: (id: string) => void;
-}) {
+function FavoriteItemCard({ item, onDelete }: { item: FavoriteItem; onDelete: (id: string) => void }) {
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [expanded, setExpanded] = useState(false);
 
@@ -214,7 +177,6 @@ function FavoriteItemCard({
         ? (item.isGroup ? (item.groupName || item.characterName) : item.characterName)
         : senderName;
     const headerAvatar = item.isCombined ? item.characterAvatar : avatarSrc;
-
     const isAudio = item.mediaType === "audio";
 
     return (
@@ -223,9 +185,7 @@ function FavoriteItemCard({
             {/* 头部 */}
             <div className="flex items-center gap-2.5 px-4 pt-3 pb-2 border-b border-[color-mix(in_srgb,var(--c-card-border)_15%,transparent)]">
                 <div className="w-7 h-7 rounded-full overflow-hidden bg-[var(--c-input)] shrink-0 flex items-center justify-center">
-                    {headerAvatar
-                        ? <img src={headerAvatar} alt="" className="w-full h-full object-cover" />
-                        : <ChatFallbackAvatar />}
+                    {headerAvatar ? <img src={headerAvatar} alt="" className="w-full h-full object-cover" /> : <ChatFallbackAvatar />}
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
                     <span className="ts-13 font-semibold text-[var(--c-text-title)] truncate leading-tight">
@@ -235,14 +195,10 @@ function FavoriteItemCard({
                         )}
                     </span>
                     <span className="ts-11 text-[var(--c-text)] opacity-50 leading-tight">
-                        {new Date(item.originalCreatedAt).toLocaleString("zh-CN", {
-                            month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
-                        })}
+                        {new Date(item.originalCreatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </span>
                 </div>
-                <span className="ts-11 text-[var(--c-text)] opacity-40 shrink-0">
-                    {formatFavoriteTime(item.favoritedAt)}收藏
-                </span>
+                <span className="ts-11 text-[var(--c-text)] opacity-40 shrink-0">{formatFavoriteTime(item.favoritedAt)}收藏</span>
             </div>
 
             {/* 内容 */}
@@ -262,32 +218,19 @@ function FavoriteItemCard({
                             <p className="ts-13 text-[var(--c-text)] opacity-70 leading-relaxed line-clamp-2">{item.content}</p>
                         )}
                         {expanded && item.combinedMessages?.map((cm, i) => (
-                            <CombinedMessageRow
-                                key={i}
-                                cm={cm}
-                                userName={item.userName}
-                                characterName={item.characterName}
-                                characterAvatar={item.characterAvatar}
-                                userAvatar={item.userAvatar}
-                            />
+                            <CombinedMessageRow key={i} cm={cm}
+                                userName={item.userName} characterName={item.characterName}
+                                characterAvatar={item.characterAvatar} userAvatar={item.userAvatar} />
                         ))}
                     </div>
                 ) : isAudio && item.fixedBlob ? (
-                    // 单条语音收藏：显示播放器 + 转写文字
                     <div className="flex flex-col gap-2">
-                        <VoicePlayer
-                            src={item.fixedBlob}
-                            duration={item.mediaData?.voiceDuration}
-                            label={item.mediaData?.label}
-                            isUser={item.role === "user"}
-                        />
+                        <VoicePlayer src={item.fixedBlob} duration={item.mediaData?.voiceDuration} label={item.mediaData?.label} />
                         {item.mediaData?.label && (
-                            <p className="ts-13 text-[var(--c-text)] opacity-70 leading-relaxed">
-                                {item.mediaData.label}
-                            </p>
+                            <p className="ts-13 text-[var(--c-text)] opacity-70 leading-relaxed">{item.mediaData.label}</p>
                         )}
                     </div>
-                ) : isAudio && !item.fixedBlob ? (
+                ) : isAudio ? (
                     <div className="flex flex-col gap-2">
                         <p className="ts-13 text-[var(--c-text)] opacity-50">[语音·音频未固化，无法播放]</p>
                         {item.mediaData?.label && (
@@ -318,11 +261,8 @@ function FavoriteItemCard({
                         <button className="ts-12 text-[var(--c-danger)] font-semibold px-2 py-1" onClick={() => onDelete(item.id)}>确认删除</button>
                     </div>
                 ) : (
-                    <button
-                        className="flex items-center gap-1 ts-12 text-[var(--c-text)] opacity-40 active:opacity-70 p-1"
-                        onClick={() => setConfirmDelete(true)}
-                        aria-label="取消收藏"
-                    >
+                    <button className="flex items-center gap-1 ts-12 text-[var(--c-text)] opacity-40 active:opacity-70 p-1"
+                        onClick={() => setConfirmDelete(true)} aria-label="取消收藏">
                         <Trash2 size={14} strokeWidth={1.5} />
                     </button>
                 )}
@@ -331,7 +271,7 @@ function FavoriteItemCard({
     );
 }
 
-// ── Tab 筛选 / 主组件 ─────────────────────
+// ── 主组件 ────────────────────────────────
 
 type ContactTab = { contactId: string; name: string; count: number };
 
@@ -339,6 +279,8 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
     const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeContactId, setActiveContactId] = useState<string | null>(defaultContactId || null);
+    // 列表滚动容器的 ref，切 Tab 时滚回顶部
+    const listRef = useRef<HTMLDivElement>(null);
 
     const isSingleMode = !!defaultContactId;
     const pageTitle = title ?? (isSingleMode ? "专属收藏夹" : "收藏夹");
@@ -351,9 +293,7 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
             const cid = item.contactId;
             countMap.set(cid, (countMap.get(cid) || 0) + 1);
             if (!nameMap.has(cid)) {
-                nameMap.set(cid, item.isGroup
-                    ? (item.groupName || item.characterName)
-                    : item.characterName);
+                nameMap.set(cid, item.isGroup ? (item.groupName || item.characterName) : item.characterName);
             }
         }
         return Array.from(countMap.entries())
@@ -361,10 +301,20 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
             .sort((a, b) => b.count - a.count);
     }, [favorites, isSingleMode]);
 
-    const displayedFavorites = useMemo(() => {
-        if (activeContactId) return favorites.filter(f => f.contactId === activeContactId);
-        return favorites;
-    }, [favorites, activeContactId]);
+    const displayedFavorites = useMemo(() =>
+        activeContactId ? favorites.filter(f => f.contactId === activeContactId) : favorites,
+        [favorites, activeContactId]
+    );
+
+    // 切 Tab 时滚回顶部，防止 sticky Tab 栏被内容遮住
+    const handleTabChange = useCallback((contactId: string | null) => {
+        setActiveContactId(contactId);
+        // 找 PageShell 渲染出来的 .page-body 滚动容器向上滚
+        const scrollEl = listRef.current?.closest(".page-body") as HTMLElement | null;
+        if (scrollEl) {
+            scrollEl.scrollTo({ top: 0, behavior: "instant" });
+        }
+    }, []);
 
     const loadFavorites = useCallback(async () => {
         setLoading(true);
@@ -388,7 +338,7 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
             {!isSingleMode && contactTabs.length > 1 && (
                 <div className="sticky top-0 z-10 bg-[var(--c-page-body-bg)] px-4 pt-2 pb-3 flex gap-2 overflow-x-auto scrollbar-none border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]">
                     <button
-                        onClick={() => setActiveContactId(null)}
+                        onClick={() => handleTabChange(null)}
                         className={`shrink-0 px-3 py-1.5 rounded-full ts-13 font-semibold transition-all ${
                             !activeContactId ? "bg-[var(--c-icon-active)] text-white" : "bg-[var(--c-input)] text-[var(--c-text)]"
                         }`}
@@ -398,7 +348,7 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
                     {contactTabs.map(tab => (
                         <button
                             key={tab.contactId}
-                            onClick={() => setActiveContactId(tab.contactId === activeContactId ? null : tab.contactId)}
+                            onClick={() => handleTabChange(tab.contactId === activeContactId ? null : tab.contactId)}
                             className={`shrink-0 px-3 py-1.5 rounded-full ts-13 font-semibold transition-all ${
                                 activeContactId === tab.contactId
                                     ? "bg-[var(--c-icon-active)] text-white"
@@ -412,8 +362,8 @@ export function ChatFavoritesPanel({ defaultContactId, title, onBack }: ChatFavo
                 </div>
             )}
 
-            {/* 列表 */}
-            <div className="pt-3 pb-8">
+            {/* 列表主体 */}
+            <div ref={listRef} className="pt-3 pb-8">
                 {loading ? (
                     <div className="flex justify-center items-center py-20 opacity-40">
                         <span className="ts-14 text-[var(--c-text)]">加载中...</span>
