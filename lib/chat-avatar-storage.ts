@@ -3,7 +3,9 @@
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
 
 const CHAR_AVATAR_VAULT_KEY = "ai_phone_char_avatar_vault_v1";
+const USER_AVATAR_VAULT_KEY = "ai_phone_user_avatar_vault_v1";
 registerKvMigration(CHAR_AVATAR_VAULT_KEY);
+registerKvMigration(USER_AVATAR_VAULT_KEY);
 
 export interface ChatAvatarItem {
     id: string;
@@ -89,5 +91,77 @@ export function updateCharacterChatAvatarDesc(characterId: string, avatarId: str
     if (target) {
         target.description = description.trim();
         writeVault(vault);
+    }
+}
+
+// -------------------------------------------------------------
+// 用户专属网络头像仓储系统（我的网络头像库）
+// -------------------------------------------------------------
+
+function readUserVault(): ChatAvatarItem[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = kvGet(USER_AVATAR_VAULT_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeUserVault(list: ChatAvatarItem[]): void {
+    if (typeof window === "undefined") return;
+    kvSet(USER_AVATAR_VAULT_KEY, JSON.stringify(list));
+}
+
+/** 获取用户的网络头像库 */
+export function getUserChatAvatars(): ChatAvatarItem[] {
+    return readUserVault();
+}
+
+/** 为用户网络头像库添加一个头像 */
+export function addUserChatAvatar(
+    url: string,
+    description: string,
+    source: "user_sent" | "manual" = "manual"
+): ChatAvatarItem {
+    const list = readUserVault();
+
+    // 如果已有相同 URL 的头像，更新描述并移到最前
+    const existingIdx = list.findIndex(item => item.url === url);
+    if (existingIdx !== -1) {
+        list[existingIdx].description = description || list[existingIdx].description;
+        const item = list[existingIdx];
+        list.splice(existingIdx, 1);
+        list.unshift(item);
+        writeUserVault(list);
+        return item;
+    }
+
+    const newItem: ChatAvatarItem = {
+        id: `user_avatar_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        url,
+        description: description.trim() || "我的专属头像",
+        source,
+        createdAt: new Date().toISOString(),
+    };
+    list.unshift(newItem);
+    writeUserVault(list);
+    return newItem;
+}
+
+/** 删除用户的某个网络头像 */
+export function removeUserChatAvatar(avatarId: string): void {
+    const list = readUserVault();
+    const filtered = list.filter(item => item.id !== avatarId);
+    writeUserVault(filtered);
+}
+
+/** 更新用户某个网络头像的描述 */
+export function updateUserChatAvatarDesc(avatarId: string, description: string): void {
+    const list = readUserVault();
+    const target = list.find(item => item.id === avatarId);
+    if (target) {
+        target.description = description.trim();
+        writeUserVault(list);
     }
 }
