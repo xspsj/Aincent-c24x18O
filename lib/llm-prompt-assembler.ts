@@ -134,6 +134,7 @@ export interface AssemblerInput {
     cocreateChapterIndex?: string;
     cocreateArchivedChapterContext?: string;
     cocreateWriterNotebook?: string;
+    chatAvatarVisualContext?: string; // 聊天视觉形象与头像库感知数据
 }
 
 type PromptBlock = {
@@ -870,6 +871,17 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
                 marker: `WB: ${entry.key}`,
             });
         });
+
+        // 注入视觉感知（当前聊天形象与可用备选头像库）
+        if (input.chatAvatarVisualContext?.trim()) {
+            blocks.push({
+                text: input.chatAvatarVisualContext.trim(),
+                role: "system",
+                depth: beforeHistoryDepth,
+                order: orderIdx++,
+                marker: "chat-avatar-visual-context",
+            });
+        }
 
     }
 
@@ -1634,6 +1646,7 @@ export interface GroupAssemblerInput {
     checkPhoneBilingualInstruction?: string;
     xiaohongshuBilingualInstruction?: string;
     nativeToolHistory?: boolean;
+    chatAvatarVisualContext?: string;
 }
 
 function pushGroupChronologicalShortTermBlocks(params: {
@@ -2077,6 +2090,16 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
                     marker: p.name || p.identifier,
                 });
             }
+        }
+
+        if (input.chatAvatarVisualContext?.trim()) {
+            blocks.push({
+                text: input.chatAvatarVisualContext.trim(),
+                role: "system",
+                depth: beforeHistoryDepth,
+                order: orderIdx++,
+                marker: "chat-avatar-visual-context",
+            });
         }
     }
 

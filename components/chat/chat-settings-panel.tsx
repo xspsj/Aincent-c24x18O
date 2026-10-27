@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
     CHAT_INITIAL_VISIBLE_MESSAGE_COUNT,
     CHAT_LOAD_MORE_MESSAGE_COUNT,
@@ -44,8 +45,9 @@ import { downloadFile } from "@/lib/download-utils";
 import { getSchemes, saveScheme, deleteScheme, type CSSScheme } from "@/lib/css-scheme-storage";
 import { CustomStatusFrame } from "@/components/chat/custom-status-frame";
 import { KeyboardAutoSendDebounceItem } from "@/components/chat/keyboard-auto-send-debounce-item";
-import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, Star, type LucideIcon } from "lucide-react";
+import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, Star, UserCheck, type LucideIcon } from "lucide-react";
 import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
+import { ChatAvatarPanel } from "@/components/chat/chat-avatar-panel";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import { ConfirmDialog } from "@/components/ui/modal";
@@ -421,6 +423,7 @@ export function ChatSettingsPanel({
     const [showScreenEffects, setShowScreenEffects] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [showFavorites, setShowFavorites] = useState(false);
+    const [showAvatarVault, setShowAvatarVault] = useState(false);
     // TA 的电脑：翻看角色云端电脑（连接了角色电脑才显示入口）
     const [showComputer, setShowComputer] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
@@ -832,6 +835,35 @@ export function ChatSettingsPanel({
             <div className="page-menu chat-info-menu">
                 {/* Basic Info & Search */}
                 <div className="menu-group">
+                    {!session.isGroup && (
+                        <button className="menu-item" onClick={() => setShowAvatarVault(true)}>
+                            <ChatInfoIcon icon={UserCheck} color="#8a6cf6" />
+                            <div className="menu-label-group"><span className="menu-label">头像</span></div>
+                            <div className="menu-right flex items-center gap-1.5">
+                                <div className="flex items-center -space-x-2">
+                                    {(session.customCharAvatar || character?.avatar) && (
+                                        <div className="w-7 h-7 rounded-full overflow-hidden bg-black/10 shrink-0 border-2 border-[var(--c-card,#1c1c1e)] shadow-sm">
+                                            <img
+                                                src={session.customCharAvatar || character?.avatar}
+                                                alt="角色头像"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                    {(session.customUserAvatar || userIdentity?.avatarUrl) && (
+                                        <div className="w-7 h-7 rounded-full overflow-hidden bg-black/10 shrink-0 border-2 border-[var(--c-card,#1c1c1e)] shadow-sm">
+                                            <img
+                                                src={session.customUserAvatar || userIdentity?.avatarUrl}
+                                                alt="我的头像"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                                <ChevronRight size={16} />
+                            </div>
+                        </button>
+                    )}
                     <button className="menu-item" onClick={() => setEditingAlias(true)}>
                         <ChatInfoIcon icon={MessageSquare} color={CONTENT_APP_ACCENTS.chat} />
                         <div className="menu-label-group"><span className="menu-label">{session.isGroup ? "群聊名称" : "设置备注"}</span></div>
@@ -1302,6 +1334,17 @@ export function ChatSettingsPanel({
                 </div>
 
             </div>
+
+            {/* 专属头像管理全屏面板：通过 createPortal 挂载到手机屏幕容器，彻底杜绝白屏 */}
+            {showAvatarVault && typeof document !== "undefined" && createPortal(
+                <ChatAvatarPanel
+                    sessionId={session.id}
+                    initialCharacterId={character?.id || session.contactId}
+                    lockCharacter={true}
+                    onBack={() => setShowAvatarVault(false)}
+                />,
+                document.querySelector(".phone-shell") ?? document.body
+            )}
 
             {/* Modal: Group member actions */}
             {memberActionKey && (

@@ -75,7 +75,12 @@ import {
 } from "@/lib/generated-image-retry";
 import { scrollElementWithinContainer } from "@/lib/dom-scroll";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
-import { addCharacterChatAvatar, getCharacterChatAvatars } from "@/lib/chat-avatar-storage";
+import {
+    addCharacterChatAvatar,
+    getCharacterChatAvatars,
+    getUserChatAvatars,
+    addUserChatAvatar,
+} from "@/lib/chat-avatar-storage";
 import { ChatScreenEffectOverlay, type ActiveScreenEffect } from "./chat-screen-effect";
 import {
     formatChatDiceResultMessage,
@@ -2991,8 +2996,52 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
-        // 角色自然对白换头像兼容兜底（口头配合）：
+        // 角色自然对白换头像兼容兜底（口头配合与指令执行）：
         if (session.contactId && !session.isGroup) {
+            // 1. 处理结构化指令：[换自己头像:xxx] 或 [换对方头像:xxx]
+            const charAvatars = getCharacterChatAvatars(session.contactId);
+            const userAvatars = getUserChatAvatars();
+
+            for (const p of rawParts) {
+                if (!p.content) continue;
+
+                // 角色给自己换头像
+                const selfMatch = p.content.match(/\[(?:换自己头像|换自己|换我的头像|换头像)[:：](.+?)\]/);
+                if (selfMatch) {
+                    const targetName = selfMatch[1].trim();
+                    p.content = p.content.replace(selfMatch[0], "").trim();
+                    const matched = charAvatars.find(a => a.description === targetName) || charAvatars.find(a => a.description.includes(targetName));
+                    if (matched) {
+                        const allSessions = loadChatSessions();
+                        const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: matched.url, customCharAvatarDesc: matched.description } : s);
+                        saveChatSessions(nextSessions);
+                        session.customCharAvatar = matched.url;
+                        session.customCharAvatarDesc = matched.description;
+                        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                        showChatToast(`${charN}换上了「${matched.description}」`);
+                    }
+                }
+
+                // 角色帮对方（用户）换头像
+                const userMatch = p.content.match(/\[(?:换对方头像|换你头像|换用户头像)[:：](.+?)\]/);
+                if (userMatch) {
+                    const targetName = userMatch[1].trim();
+                    p.content = p.content.replace(userMatch[0], "").trim();
+                    const matched = userAvatars.find(a => a.description === targetName) || userAvatars.find(a => a.description.includes(targetName));
+                    if (matched) {
+                        const allSessions = loadChatSessions();
+                        const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customUserAvatar: matched.url, customUserAvatarDesc: matched.description } : s);
+                        saveChatSessions(nextSessions);
+                        session.customUserAvatar = matched.url;
+                        session.customUserAvatarDesc = matched.description;
+                        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                        window.dispatchEvent(new CustomEvent("chat-messages-updated", { detail: { sessionId: session.id } }));
+                        showChatToast(`TA为你挑选并换上了「${matched.description}」`);
+                    }
+                }
+            }
+
+            // 2. 检查用户刚刚发送图片要求换头的情况
             const hasSpokenChangeAvatar = rawParts.some(p => !p.mediaType && /(?:换好了|换上啦|换上去了|换了|换个头像|这就换)/.test(p.content));
             if (hasSpokenChangeAvatar) {
                 const freshMsgs = loadChatMessages(session.id);

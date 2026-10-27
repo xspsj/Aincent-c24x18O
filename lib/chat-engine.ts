@@ -35,6 +35,7 @@ import {
     resolveUserIdentity,
 } from "./settings-storage";
 import { assemblePromptPayload, applyOutputRegex, type LLMMessage, type LLMContentPart } from "./llm-prompt-assembler";
+import { getCharacterChatAvatars, getUserChatAvatars } from "./chat-avatar-storage";
 import { MacroEngine, postProcessTrim } from "./macro-engine";
 import { getStatusRegionConfig, resolveStatusRegionSection, resolveStatusRegionExampleLine, resolveStatusRegionComposition, resolveStatusRegionFullExample } from "./chat-status-region";
 import {
@@ -1929,6 +1930,53 @@ export async function buildChatPromptMessages(
     const chatBilingualInstruction = !session.isGroup
         ? buildChatBilingualInstruction(session.bilingualTranslationEnabled !== false, "single", session.bilingualTranslationPrompt)
         : "";
+    // 组装聊天视觉形象与备选头像库感知
+    let chatAvatarVisualContext = "";
+    if (!session.isGroup) {
+        const charAvatars = getCharacterChatAvatars(character.id);
+        const userAvatars = getUserChatAvatars();
+        const currentCharAvatarName = session.customCharAvatarDesc || (session.customCharAvatar ? "聊天独立头像" : "角色默认主形象");
+        const currentUserAvatarName = session.customUserAvatarDesc || (session.customUserAvatar ? "聊天独立头像" : "用户默认形象");
+
+        const charListStr = charAvatars.length > 0
+            ? charAvatars.map(a => a.description || "无名称").join(", ")
+            : "暂无备选头像";
+        const userListStr = userAvatars.length > 0
+            ? userAvatars.map(a => a.description || "无名称").join(", ")
+            : "暂无备选头像";
+
+        // 检查换头像抓包：如果用户悄悄换了新头像，注入单次抓包提示
+        let captureNotice = "";
+        const currentUserAvatarKey = session.customUserAvatar || "default";
+        if (session.lastSeenUserAvatarId && session.lastSeenUserAvatarId !== currentUserAvatarKey) {
+            captureNotice = `\n[系统感知：对方刚刚悄悄更换了聊天头像，新头像是「${currentUserAvatarName}」，请在回复中敏锐察觉、主动调侃或抓包！]`;
+        }
+        // 更新 lastSeenUserAvatarId 确保单次消费
+        if (session.lastSeenUserAvatarId !== currentUserAvatarKey) {
+            const sessions = loadChatSessions();
+            const sIdx = sessions.findIndex(s => s.id === session.id);
+            if (sIdx !== -1) {
+                sessions[sIdx] = { ...sessions[sIdx], lastSeenUserAvatarId: currentUserAvatarKey };
+                saveChatSessions(sessions);
+                session.lastSeenUserAvatarId = currentUserAvatarKey;
+            }
+        }
+
+        chatAvatarVisualContext = [
+            "【当前聊天视觉形象与头像感知】",
+            `你的当前聊天头像：${character.name}的「${currentCharAvatarName}」`,
+            `对方（{{user}}）的当前聊天头像：「${currentUserAvatarName}」`,
+            `你的可用备选头像库：[${charListStr}]`,
+            `对方的可用备选头像库：[${userListStr}]`,
+            captureNotice,
+            "",
+            "【头像更换操作指令规范（极重要，切勿混淆对象）】",
+            "- 换你自己头像：当你自己想变装、换外观时，在回复末尾附带：[换自己头像:你库里的确切名称]（严禁将对方库里的头像戴在自己头上）。",
+            "- 帮对方换头像：当你主动要求、宠溺/霸道地帮对方戴上情头、或者让对方换上你挑选的形象时，附带：[换对方头像:对方库里的确切名称]（严禁在此指令中使用你自己的头像名称）。",
+            "- 更换头像的指令必须从上述备选列表中选择确切存在的名称，系统会自动为你/对方换上对应形象。",
+        ].filter(Boolean).join("\n");
+    }
+
     // 状态区宏：按会话配置解析（native=原文/off=空/custom=契约）；群聊条目不含宏，不受影响
     const statusRegionCfg = getStatusRegionConfig(session.id);
     const offlineBilingualInstruction = !session.isGroup
@@ -1981,6 +2029,7 @@ export async function buildChatPromptMessages(
         offlineBilingualInstruction,
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
+        chatAvatarVisualContext,
     });
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
