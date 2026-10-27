@@ -81,6 +81,8 @@ export type ChatSession = {
     customCharAvatar?: string;       // 角色当前在聊天中使用的网络头像 URL 或 base64
     customCharAvatarDesc?: string;   // 角色当前头像的描述（注入 Prompt，让角色知道自己换上了什么）
     customUserAvatar?: string;       // 用户在该聊天中的独立网络头像
+    customUserAvatarDesc?: string;   // 用户在该聊天中头像的描述名称
+    lastSeenUserAvatarId?: string;   // 角色上次感知到的用户头像ID（用于抓包调侃）
 };
 
 export type ChatMessageStatus = "sending" | "sent" | "read" | "failed";
