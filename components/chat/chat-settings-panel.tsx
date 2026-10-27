@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
     CHAT_INITIAL_VISIBLE_MESSAGE_COUNT,
     CHAT_LOAD_MORE_MESSAGE_COUNT,
@@ -1334,13 +1335,15 @@ export function ChatSettingsPanel({
 
             </div>
 
-            {/* 头像管理全屏面板 */}
-            {showAvatarVault && (
+            {/* 专属头像管理全屏面板：通过 createPortal 挂载到手机屏幕容器，彻底杜绝白屏 */}
+            {showAvatarVault && typeof document !== "undefined" && createPortal(
                 <ChatAvatarPanel
                     sessionId={session.id}
                     initialCharacterId={character?.id || session.contactId}
+                    lockCharacter={true}
                     onBack={() => setShowAvatarVault(false)}
-                />
+                />,
+                document.querySelector(".phone-shell") ?? document.body
             )}
 
             {/* Modal: Group member actions */}
