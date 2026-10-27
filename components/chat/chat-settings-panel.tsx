@@ -834,6 +834,35 @@ export function ChatSettingsPanel({
             <div className="page-menu chat-info-menu">
                 {/* Basic Info & Search */}
                 <div className="menu-group">
+                    {!session.isGroup && (
+                        <button className="menu-item" onClick={() => setShowAvatarVault(true)}>
+                            <ChatInfoIcon icon={UserCheck} color="#8a6cf6" />
+                            <div className="menu-label-group"><span className="menu-label">头像</span></div>
+                            <div className="menu-right flex items-center gap-1.5">
+                                <div className="flex items-center -space-x-2">
+                                    {(session.customCharAvatar || character?.avatar) && (
+                                        <div className="w-7 h-7 rounded-full overflow-hidden bg-black/10 shrink-0 border-2 border-[var(--c-card,#1c1c1e)] shadow-sm">
+                                            <img
+                                                src={session.customCharAvatar || character?.avatar}
+                                                alt="角色头像"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                    {(session.customUserAvatar || userIdentity?.avatarUrl) && (
+                                        <div className="w-7 h-7 rounded-full overflow-hidden bg-black/10 shrink-0 border-2 border-[var(--c-card,#1c1c1e)] shadow-sm">
+                                            <img
+                                                src={session.customUserAvatar || userIdentity?.avatarUrl}
+                                                alt="我的头像"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                                <ChevronRight size={16} />
+                            </div>
+                        </button>
+                    )}
                     <button className="menu-item" onClick={() => setEditingAlias(true)}>
                         <ChatInfoIcon icon={MessageSquare} color={CONTENT_APP_ACCENTS.chat} />
                         <div className="menu-label-group"><span className="menu-label">{session.isGroup ? "群聊名称" : "设置备注"}</span></div>
@@ -842,27 +871,6 @@ export function ChatSettingsPanel({
                             <ChevronRight size={16} />
                         </div>
                     </button>
-                    {!session.isGroup && (
-                        <button className="menu-item" onClick={() => setShowAvatarVault(true)}>
-                            <ChatInfoIcon icon={UserCheck} color="#8a6cf6" />
-                            <div className="menu-label-group">
-                                <span className="menu-label">聊天形象与头像管理</span>
-                                <span className="menu-sublabel text-[11px] text-[var(--c-text)] opacity-50 block">切换独立网头、专属头像库与本体资料维护</span>
-                            </div>
-                            <div className="menu-right flex items-center gap-2">
-                                {(session.customCharAvatar || character?.avatar) && (
-                                    <div className="w-6 h-6 rounded-full overflow-hidden bg-black/10 shrink-0 border border-[var(--c-card-border)]">
-                                        <img
-                                            src={session.customCharAvatar || character?.avatar}
-                                            alt=""
-                                            className="w-full h-full object-cover"
-                                        />
-                                    </div>
-                                )}
-                                <ChevronRight size={16} />
-                            </div>
-                        </button>
-                    )}
                     <button className="menu-item" onClick={openSearchPanel}>
                         <ChatInfoIcon icon={Search} color={BINDING_ACCENTS.api} />
                         <div className="menu-label-group"><span className="menu-label">查找聊天记录</span></div>
