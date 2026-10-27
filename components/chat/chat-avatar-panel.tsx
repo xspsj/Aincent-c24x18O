@@ -9,6 +9,9 @@ import {
     getCharacterChatAvatars,
     addCharacterChatAvatar,
     removeCharacterChatAvatar,
+    getUserChatAvatars,
+    addUserChatAvatar,
+    removeUserChatAvatar,
     type ChatAvatarItem,
 } from "@/lib/chat-avatar-storage";
 import { loadCharacters, saveCharacters } from "@/lib/character-storage";
@@ -18,12 +21,19 @@ import { loadChatSessions, saveChatSessions, type ChatSession } from "@/lib/chat
 interface ChatAvatarPanelProps {
     onBack: () => void;
     sessionId?: string;
+    initialCharacterId?: string;
 }
 
-export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
+export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId }: ChatAvatarPanelProps) {
     const characters = loadCharacters();
-    const [selectedCharId, setSelectedCharId] = useState<string>(characters[0]?.id || "");
+    const [selectedCharId, setSelectedCharId] = useState<string>(() => {
+        if (initialCharacterId && characters.some(c => c.id === initialCharacterId)) {
+            return initialCharacterId;
+        }
+        return characters[0]?.id || "";
+    });
     const [avatars, setAvatars] = useState<ChatAvatarItem[]>([]);
+    const [userAvatars, setUserAvatars] = useState<ChatAvatarItem[]>([]);
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
 
@@ -32,14 +42,19 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
     // 用户当前聊天专属网头
     const [userChatAvatar, setUserChatAvatar] = useState<string>("");
 
-    // 新增头像表单
+    // 新增头像表单（角色库）
     const [newDesc, setNewDesc] = useState("");
     const [uploading, setUploading] = useState(false);
+
+    // 新增头像表单（我的用户库）
+    const [newUserDesc, setNewUserDesc] = useState("");
+    const [uploadingUser, setUploadingUser] = useState(false);
 
     // 刷新数据
     const refreshData = () => {
         const loadedSessions = loadChatSessions();
         setSessions(loadedSessions);
+        setUserAvatars(getUserChatAvatars());
         if (selectedCharId) {
             setAvatars(getCharacterChatAvatars(selectedCharId));
             const sess = loadedSessions.find(s => s.contactId === selectedCharId || s.id === sessionId);
@@ -123,7 +138,52 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
         window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
     };
 
-    // 用户更换自己在当前聊天的专属网络头像
+    // 上传新头像进「我的网络头像库」
+    const handleUploadUserAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingUser(true);
+        try {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+            const defaultDesc = newUserDesc.trim() || "我的专属头像";
+            addUserChatAvatar(dataUrl, defaultDesc, "manual");
+            setNewUserDesc("");
+            refreshData();
+        } catch {
+            alert("上传失败");
+        } finally {
+            setUploadingUser(false);
+        }
+    };
+
+    // 从我的头像库中选一张设为当前聊天的专属网络头像
+    const handleSetUserChatAvatar = (item: ChatAvatarItem) => {
+        if (!currentSession) return;
+        const updatedSessions = sessions.map(s => {
+            if (s.id === currentSession.id) {
+                return {
+                    ...s,
+                    customUserAvatar: item.url,
+                    customUserAvatarDesc: item.description,
+                };
+            }
+            return s;
+        });
+        saveChatSessions(updatedSessions);
+        setSessions(updatedSessions);
+        setUserChatAvatar(item.url);
+        setCurrentSession(prev => prev ? { ...prev, customUserAvatar: item.url, customUserAvatarDesc: item.description } : null);
+        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+        window.dispatchEvent(new CustomEvent("chat-messages-updated", { detail: { sessionId: currentSession.id } }));
+        window.dispatchEvent(new CustomEvent("chat-open-session", { detail: { sessionId: currentSession.id } }));
+    };
+
+    // 用户更换自己在当前聊天的专属网络头像（直接上传单张）
     const handleUserChatAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !currentSession) return;
@@ -134,14 +194,18 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
                 reader.onerror = reject;
                 reader.readAsDataURL(file);
             });
+            const defaultDesc = "临时上传头像";
+            // 顺便收录进我的头像库
+            addUserChatAvatar(dataUrl, defaultDesc, "manual");
             const updatedSessions = sessions.map(s => {
                 if (s.id === currentSession.id) {
-                    return { ...s, customUserAvatar: dataUrl };
+                    return { ...s, customUserAvatar: dataUrl, customUserAvatarDesc: defaultDesc };
                 }
                 return s;
             });
             saveChatSessions(updatedSessions);
             setUserChatAvatar(dataUrl);
+            refreshData();
             window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
             window.dispatchEvent(new CustomEvent("chat-messages-updated", { detail: { sessionId: currentSession.id } }));
             window.dispatchEvent(new CustomEvent("chat-open-session", { detail: { sessionId: currentSession.id } }));
@@ -368,22 +432,98 @@ export function ChatAvatarPanel({ onBack, sessionId }: ChatAvatarPanelProps) {
                             )}
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-full overflow-hidden bg-black/5 shrink-0 border border-[var(--c-card-border)]">
+                            <div className="w-14 h-14 rounded-full overflow-hidden bg-black/5 shrink-0 border-2 border-[var(--c-card-border)] shadow-inner">
                                 <img
                                     src={userChatAvatar || userIdentity?.avatarUrl || ""}
                                     alt="My Chat Avatar"
                                     className="w-full h-full object-cover"
                                 />
                             </div>
-                            <div className="flex flex-col gap-1 flex-1">
-                                <span className="text-xs font-semibold text-[var(--c-text)]">
-                                    {userChatAvatar ? "已换上聊天独立网头（聊天室气泡即刻生效）" : "跟随个人资料全局头像"}
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                                <span className="text-sm font-bold text-[var(--c-text-title)] truncate">
+                                    {userChatAvatar ? "已换上聊天网络头像" : "当前使用个人资料默认头像"}
                                 </span>
-                                <label className="text-xs text-[var(--c-icon-active)] font-bold cursor-pointer inline-flex items-center gap-1">
-                                    <ImageIcon size={14} /> 选一张换上专属网络头像
-                                    <input type="file" accept="image/*" onChange={handleUserChatAvatarUpload} className="hidden" />
-                                </label>
+                                <span className="text-xs text-[var(--c-text)] opacity-70 line-clamp-2">
+                                    {currentSession?.customUserAvatarDesc || "暂无描述。在下方专属头像库中选择头像即可生效。"}
+                                </span>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* 模块4：我的网络头像库（双向对称管理） */}
+                    <div className="bg-[var(--c-card)] rounded-[22px] p-4 flex flex-col gap-3 border border-[var(--c-card-border)]/40 shadow-sm">
+                        <div>
+                            <span className="text-xs font-bold text-[var(--c-text-title)] block">
+                                我的网络头像库 ({userAvatars.length})
+                            </span>
+                            <span className="text-[11px] text-[var(--c-text)] opacity-50 block mt-0.5">
+                                上传并管理你的专属头像，角色可感知到你换上了哪个头像、也可主动为你挑选换上
+                            </span>
+                        </div>
+
+                        {/* 上传新头像进我的库 */}
+                        <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-black/5 dark:bg-white/5">
+                            <input
+                                type="text"
+                                placeholder="输入头像描述（例：圣诞自拍、猫猫情头女款、红裙子）"
+                                value={newUserDesc}
+                                onChange={e => setNewUserDesc(e.target.value)}
+                                className="ui-input text-xs w-full h-8 px-2"
+                            />
+                            <label className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[var(--c-icon-active)] text-white text-xs font-semibold cursor-pointer active:scale-98 transition-transform">
+                                <Plus size={14} /> 上传新头像到我的库
+                                <input type="file" accept="image/*" onChange={handleUploadUserAvatar} className="hidden" disabled={uploadingUser} />
+                            </label>
+                        </div>
+
+                        {/* 我的头像列表 */}
+                        <div className="grid grid-cols-3 gap-3 pt-1">
+                            {userAvatars.map(item => {
+                                const isCurrent = currentSession?.customUserAvatar === item.url;
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className={`flex flex-col gap-1.5 p-2 rounded-xl bg-black/5 dark:bg-white/5 border transition-all ${
+                                            isCurrent ? "border-[var(--c-icon-active)] shadow-sm" : "border-transparent"
+                                        }`}
+                                    >
+                                        <div className="relative aspect-square rounded-lg overflow-hidden bg-black/10">
+                                            <img src={item.url} alt="" className="w-full h-full object-cover" />
+                                            {isCurrent && (
+                                                <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-[var(--c-icon-active)] text-white flex items-center justify-center shadow">
+                                                    <Check size={12} strokeWidth={3} />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <span className="text-[11px] text-[var(--c-text)] opacity-75 truncate text-center" title={item.description}>
+                                            {item.description}
+                                        </span>
+                                        <div className="flex gap-1 mt-auto">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSetUserChatAvatar(item)}
+                                                className={`flex-1 py-1 rounded text-[10px] font-semibold border-none cursor-pointer active:scale-95 transition-transform ${
+                                                    isCurrent
+                                                        ? "bg-[var(--c-icon-active)] text-white"
+                                                        : "bg-black/10 dark:bg-white/10 text-[var(--c-text)]"
+                                                }`}
+                                            >
+                                                {isCurrent ? "生效中" : "换上"}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    removeUserChatAvatar(item.id);
+                                                    refreshData();
+                                                }}
+                                                className="w-6 py-1 rounded text-[10px] bg-black/10 dark:bg-white/10 text-[var(--c-danger)] flex items-center justify-center border-none cursor-pointer active:scale-95"
+                                            >
+                                                <Trash2 size={10} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
 
