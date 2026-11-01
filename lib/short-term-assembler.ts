@@ -42,11 +42,12 @@ import {
     resolvePromptTimeAware,
     type PromptTimestampOptions,
 } from "./prompt-time";
+import { resolvePhotoType } from "./rich-message-parser";
 
 function formatPhotoDirectiveForPrompt(msg: ChatMessage): string {
     const description = msg.mediaData?.label?.trim() || "图片";
-    const mode = msg.mediaData?.useReferenceImage === true ? "使用参考图" : "不使用参考图";
-    return `[照片:${mode}:${description}]`;
+    const photoType = resolvePhotoType(msg.mediaData);
+    return `[照片:${photoType}:${description}]`;
 }
 
 export type NativeTimelineEntry = {
