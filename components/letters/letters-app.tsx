@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Bot, ChevronLeft, Clock3, Mail, PenTool, Settings2, Trash2, WandSparkles, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui";
@@ -22,10 +22,20 @@ import {
   saveLetterTimerSettings,
 } from "@/lib/letter-storage";
 import type { Letter, LetterTimerSettings } from "@/lib/letter-types";
+import {
+  loadDiaryEntryFontAssetId,
+  loadDiaryEntryFontScale,
+  saveDiaryEntryFontAssetId,
+  saveDiaryEntryFontScale,
+} from "@/lib/diary-entry-storage";
+import { getThemeAssetDataUrl, saveThemeAssetFromBlob } from "@/lib/theme-storage";
 
 import { LetterDrawer, formatUnlockTime, hashText } from "./letter-drawer";
 import { LetterEnvelopeStage } from "./letter-envelope-stage";
 import { LetterMailSettings } from "./letter-mail-settings";
+
+const DIARY_USER_FONT_FAMILY = "AIPhoneDiaryEntryUserFont";
+const DIARY_USER_FONT_STYLE_ID = "ai-phone-diary-entry-user-font-face";
 
 type LettersAppProps = {
   onBack: () => void;
@@ -68,20 +78,111 @@ function usePrefersReducedMotion(): boolean {
 export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [letterCharacterIds, setLetterCharacterIds] = useState<string[]>([]);
-  // activeCharacterId 为 null 时，表示停留在「第一层：角色信盒列表」（同日记第一层书架）
   const [activeCharacterId, setActiveCharacterId] = useState<string | null>(null);
   const [letters, setLetters] = useState<Letter[]>([]);
   const [pulled, setPulled] = useState<Pulled | null>(null);
   const [readingId, setReadingId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<Letter | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [fontPanelOpen, setFontPanelOpen] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [timerSettings, setTimerSettings] = useState<LetterTimerSettings>(() => loadLetterTimerSettings());
   const [now, setNow] = useState(() => Date.now());
   const reducedMotion = usePrefersReducedMotion();
 
+  // ── 自定义字体与字号（与手记日记共享字体资源） ──
+  const [diaryFontAssetId, setDiaryFontAssetId] = useState<string | null>(() => loadDiaryEntryFontAssetId());
+  const [diaryFontDataUrl, setDiaryFontDataUrl] = useState<string | null>(null);
+  const [diaryFontScale, setDiaryFontScale] = useState<number>(() => loadDiaryEntryFontScale());
+  const fontFileRef = useRef<HTMLInputElement | null>(null);
+
   const notify = useCallback((message: string) => onNotice?.(message), [onNotice]);
+
+  useEffect(() => {
+    if (!diaryFontAssetId) {
+      setDiaryFontDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void getThemeAssetDataUrl(diaryFontAssetId)
+      .then(dataUrl => {
+        if (cancelled) return;
+        if (dataUrl) {
+          setDiaryFontDataUrl(dataUrl);
+          return;
+        }
+        saveDiaryEntryFontAssetId(null);
+        setDiaryFontAssetId(null);
+        setDiaryFontDataUrl(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDiaryFontDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [diaryFontAssetId]);
+
+  useEffect(() => {
+    let node = document.getElementById(DIARY_USER_FONT_STYLE_ID) as HTMLStyleElement | null;
+    if (!node) {
+      node = document.createElement("style");
+      node.id = DIARY_USER_FONT_STYLE_ID;
+      document.head.append(node);
+    }
+    node.textContent = diaryFontDataUrl
+      ? `@font-face{font-family:"${DIARY_USER_FONT_FAMILY}";src:url("${diaryFontDataUrl}");font-display:swap;}`
+      : "";
+  }, [diaryFontDataUrl]);
+
+  const handleDiaryFontUpload = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+
+      try {
+        const assetId = await saveThemeAssetFromBlob(file, "font");
+        const dataUrl = await getThemeAssetDataUrl(assetId);
+        if (!dataUrl) {
+          throw new Error("字体资源未成功存入数据库");
+        }
+        saveDiaryEntryFontAssetId(assetId);
+        setDiaryFontAssetId(assetId);
+        setDiaryFontDataUrl(dataUrl);
+        notify(`信件字体已更新：${file.name}`);
+      } catch (error) {
+        notify("字体上传失败：" + String(error));
+      }
+    },
+    [notify],
+  );
+
+  const handleDiaryFontScaleChange = useCallback((scale: number) => {
+    const normalized = Math.min(1.25, Math.max(0.85, scale));
+    setDiaryFontScale(normalized);
+    saveDiaryEntryFontScale(normalized);
+  }, []);
+
+  const handleDiaryFontReset = useCallback(() => {
+    saveDiaryEntryFontAssetId(null);
+    saveDiaryEntryFontScale(1);
+    setDiaryFontAssetId(null);
+    setDiaryFontDataUrl(null);
+    setDiaryFontScale(1);
+    notify("已恢复默认手写字体");
+  }, [notify]);
+
+  const fontStyle = useMemo(() => {
+    return {
+      ...(diaryFontDataUrl
+        ? { "--diary-entry-font-family": `"${DIARY_USER_FONT_FAMILY}", "NoteWall Ximai", var(--app-font-family)` }
+        : {}),
+      "--diary-entry-font-scale": String(diaryFontScale),
+    } as CSSProperties;
+  }, [diaryFontDataUrl, diaryFontScale]);
 
   const refresh = useCallback(() => {
     setLetterCharacterIds(listLetterCharacterIds());
@@ -140,8 +241,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const handleDelete = (letter: Letter) => {
     deleteLetter(letter.characterId, letter.id);
     setDeleteCandidate(null);
-    setReadingId(current => current === letter.id ? null : current);
-    setPulled(current => current?.letterId === letter.id ? null : current);
+    setReadingId(current => (current === letter.id ? null : current));
+    setPulled(current => (current?.letterId === letter.id ? null : current));
     notify("信已删除，相关短期记忆已清除。");
   };
 
@@ -168,8 +269,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   };
 
   return (
-    <section className="diary-app diary-entry-app lt-app">
-      {/* 顶部栏：严格对齐日记组件结构，原生右侧放置设置按钮 */}
+    <section className="diary-app diary-entry-app lt-app" style={fontStyle}>
       <header className="diary-app-header diary-entry-header">
         <button
           type="button"
@@ -186,6 +286,15 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         <span className="diary-entry-header-actions">
           <button
             type="button"
+            className="note-wall-menu-btn diary-font-upload-btn"
+            onClick={() => setFontPanelOpen(true)}
+            aria-label="信件字体设置"
+            title="信件字体设置"
+          >
+            <span className="diary-font-upload-mark" aria-hidden="true">Aa</span>
+          </button>
+          <button
+            type="button"
             className="note-wall-menu-btn"
             onClick={() => setSettingsOpen(true)}
             aria-label="信件设置"
@@ -196,15 +305,21 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         </span>
       </header>
 
+      <input
+        ref={fontFileRef}
+        type="file"
+        accept=".ttf,.otf,.woff,.woff2,font/*,application/font-woff,application/font-woff2"
+        className="hidden"
+        onChange={handleDiaryFontUpload}
+      />
+
       {!mailConfigured ? (
         <button type="button" className="lt-banner" onClick={() => setSettingsOpen(true)}>
           还没配置 QQ 邮箱，信件仅保存在手机中。点此配置现实邮箱 →
         </button>
       ) : null}
 
-      {/* 主视图 */}
       {!activeCharacter ? (
-        // 第一层：角色抽屉书架（图二同款展示）
         <main className="diary-entry-main">
           {characters.length === 0 ? (
             <div className="diary-entry-empty">
@@ -253,7 +368,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
           )}
         </main>
       ) : (
-        // 第二层：点入具体角色的专属木质抽屉
         <main className="lt-drawer-area">
           <LetterDrawer
             key={activeCharacter.id}
@@ -265,23 +379,22 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
             onPull={handlePull}
           />
 
-          {/* 右下角圆形悬浮“让TA写”按钮（与图三一致） */}
+          {/* 右下角悬浮“让TA写”按钮：小巧精致设计（52px） */}
           <button
             type="button"
-            className="diary-entry-write-btn"
+            className="lt-write-fab"
             disabled={generating}
             aria-busy={generating}
             onClick={handleManualTrigger}
             aria-label="让TA写一封信"
             title="让TA写一封信"
           >
-            <PenTool size={20} strokeWidth={1.7} className={generating ? "animate-pulse" : ""} />
-            <span>{generating ? "撰写中…" : "让TA写"}</span>
+            <PenTool size={18} strokeWidth={1.9} className={generating ? "animate-pulse" : ""} />
+            <span>{generating ? "写信中…" : "让TA写"}</span>
           </button>
         </main>
       )}
 
-      {/* 拆信与大信封交互舞台 */}
       {pulled && pulledLetter ? (
         <LetterEnvelopeStage
           key={pulledLetter.id}
@@ -296,7 +409,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
-      {/* 信件阅读大纸页 */}
       {readingLetter ? (
         <LetterReader
           letter={readingLetter}
@@ -307,7 +419,47 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
-      {/* 偏好与节奏设置抽屉 */}
+      {/* Aa 字体上传与字号调节弹窗（手记同款） */}
+      {fontPanelOpen ? (
+        <div className="nw-modal-backdrop" role="dialog" aria-modal="true" onClick={() => setFontPanelOpen(false)}>
+          <section className="diary-font-panel" onClick={event => event.stopPropagation()}>
+            <header>
+              <div>
+                <h2>信件字体</h2>
+                <p>{diaryFontDataUrl ? "已使用自定义手写字体" : "当前使用默认手写字体"}</p>
+              </div>
+              <button type="button" className="diary-icon-btn" onClick={() => setFontPanelOpen(false)} aria-label="关闭">
+                <X size={18} />
+              </button>
+            </header>
+
+            <button type="button" className="diary-font-upload-action" onClick={() => fontFileRef.current?.click()}>
+              <span className="diary-font-upload-mark" aria-hidden="true">Aa</span>
+              <span>上传字体文件 (.ttf / .woff2)</span>
+            </button>
+
+            <label className="diary-font-size-control">
+              <span>
+                <strong>信纸字号</strong>
+                <em>{Math.round(diaryFontScale * 100)}%</em>
+              </span>
+              <input
+                type="range"
+                min="0.85"
+                max="1.25"
+                step="any"
+                value={diaryFontScale}
+                onChange={event => handleDiaryFontScaleChange(Number(event.target.value))}
+              />
+            </label>
+
+            <button type="button" className="diary-font-reset-btn" onClick={handleDiaryFontReset}>
+              恢复默认手写字体
+            </button>
+          </section>
+        </div>
+      ) : null}
+
       {settingsOpen ? (
         <LettersSettingsSheet
           characters={characters}
@@ -318,7 +470,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
-      {/* 确认删除对话框 */}
       {deleteCandidate ? (
         <ConfirmDialog
           title="删除这封信？"

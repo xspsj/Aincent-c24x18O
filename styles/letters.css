@@ -9,6 +9,8 @@
   --lt-seal-dark: #6f2620;
   --lt-env-a: #f3ead8;
   --lt-env-b: #e8dcc3;
+  --diary-entry-font-family: "NoteWall Ximai", var(--app-font-family);
+  --diary-entry-font-scale: 1;
 }
 
 .lt-banner {
@@ -134,7 +136,7 @@
 }
 
 .lt-drawer-label strong {
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
   font-size: calc(14px*var(--app-text-scale,1));
   font-weight: 400;
 }
@@ -240,7 +242,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
   font-size: calc(15px*var(--app-text-scale,1));
 }
 
@@ -278,7 +280,7 @@
   box-shadow: 0 1px 2px rgba(40, 10, 5, 0.4);
   color: rgba(255, 230, 220, 0.85);
   font-size: 11px;
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
 }
 
 /* ── 邮票 ── */
@@ -319,7 +321,7 @@
   justify-content: center;
   background: linear-gradient(160deg, #c9d8cf, #9fb9ab);
   color: #3f5a4c;
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
 }
 
 .lt-stamp-sm {
@@ -479,7 +481,7 @@
 
 .lt-env-paper-title {
   display: block;
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
   font-size: calc(15px*var(--app-text-scale,1));
   color: var(--lt-ink);
   opacity: 0;
@@ -528,7 +530,7 @@
 }
 
 .lt-env-from {
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
   font-size: calc(15px*var(--app-text-scale,1));
   color: var(--lt-ink);
 }
@@ -574,7 +576,7 @@
 }
 
 .lt-env-seal-half span {
-  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-family: var(--diary-entry-font-family);
   font-size: 20px;
   color: rgba(255, 225, 215, 0.88);
   text-shadow: 0 -1px 0 rgba(60, 10, 5, 0.5);
@@ -652,6 +654,45 @@
   72% { transform: translateX(3px) rotate(0.5deg); }
 }
 
+/* ── 右下角悬浮按钮（轻量化 52px） ── */
+
+.lt-write-fab {
+  position: absolute;
+  right: 18px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 8;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(71, 58, 37, 0.15);
+  background: #ffffff;
+  color: #332c24;
+  box-shadow: 0 4px 12px rgba(45, 36, 24, 0.16), 0 1px 2px rgba(45, 36, 24, 0.08);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: calc(10.5px*var(--app-text-scale,1));
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.lt-write-fab:active {
+  transform: scale(0.94);
+}
+
+.lt-write-fab:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.lt-write-fab[aria-busy="true"] {
+  background: #fbf8f1;
+}
+
 /* ── 浮层（阅读 / 设置），限定在手机屏幕内 ── */
 
 .lt-overlay {
@@ -716,16 +757,16 @@
 
 .lt-paper-title {
   margin: 0 0 18px;
-  font-family: "NoteWall Ximai", var(--app-font-family);
-  font-size: calc(22px*var(--app-text-scale,1));
+  font-family: var(--diary-entry-font-family);
+  font-size: calc(23px*var(--app-text-scale,1)*var(--diary-entry-font-scale,1));
   font-weight: 400;
   line-height: 1.35;
 }
 
 .lt-paper-text {
   margin: 0 0 1em;
-  font-family: "NoteWall Ximai", var(--app-font-family);
-  font-size: calc(16px*var(--app-text-scale,1));
+  font-family: var(--diary-entry-font-family);
+  font-size: calc(16.5px*var(--app-text-scale,1)*var(--diary-entry-font-scale,1));
   line-height: 2;
   white-space: pre-wrap;
   word-break: break-word;
@@ -734,8 +775,8 @@
 .lt-paper-sign {
   margin: 26px 0 0;
   text-align: right;
-  font-family: "NoteWall Ximai", var(--app-font-family);
-  font-size: calc(16px*var(--app-text-scale,1));
+  font-family: var(--diary-entry-font-family);
+  font-size: calc(16.5px*var(--app-text-scale,1)*var(--diary-entry-font-scale,1));
 }
 
 .lt-paper-date {
