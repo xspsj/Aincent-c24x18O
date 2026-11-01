@@ -59,6 +59,7 @@ import {
     Send,
     X,
     SlidersHorizontal,
+    Sparkles,
     Star,
     Sticker,
     ThumbsUp,
@@ -1102,6 +1103,26 @@ function InlineMomentsSettings({ onBack }: { onBack: () => void }) {
                             </button>
                         </>
                     )}
+                </div>
+
+                <div className="menu-group">
+                    <div className="menu-item">
+                        <ProfileSettingsIcon icon={Sparkles} color={CONTENT_APP_ACCENTS.moments} />
+                        <div className="menu-label-group">
+                            <span className="menu-label">朋友圈自动生图</span>
+                            <span className="menu-desc">
+                                {config.alwaysAutoGenerateImage
+                                    ? "角色发朋友圈的照片总是自动生成，不看生图设置"
+                                    : "关闭时跟随「生图设置」里的调用生图模式"}
+                            </span>
+                        </div>
+                        <div className="menu-right">
+                            <Toggle
+                                checked={config.alwaysAutoGenerateImage === true}
+                                onChange={checked => update({ alwaysAutoGenerateImage: checked })}
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 <div className="menu-group">

@@ -11,6 +11,7 @@ import {
     getVisibleComments,
     getVisiblePosts,
     loadMomentsConfig,
+    isMomentsManualImageGeneration,
 } from "./moments-storage";
 import { loadChatContacts, loadChatSessions, loadChatMessages, createOrGetSession, addChatContact } from "./chat-storage";
 import { parseAndSaveResponse } from "./follow-up-service";
@@ -19,6 +20,7 @@ import { clearRequestsForCharacter, dispatchFriendRequestUpdated } from "./frien
 import { sendBrowserNotification } from "./browser-notification";
 import type { MomentPost, MomentComment } from "./moments-types";
 import { attachMomentPhotoInBackground, parseMomentPostResponse } from "./moments-engine";
+import { isManualImageGeneration } from "./image-generation-service";
 import { isAbortError, throwIfAborted } from "./abort-utils";
 
 // ── Types ──
@@ -310,13 +312,18 @@ async function dispatchMomentsPost(action: ActionTag, context: ActionContext): P
     const visibility = contacts.map(c => c.characterId);
 
     // 先入库再生图：帖子立即可见，生图慢/超时/页面被杀都不会丢帖
+    // 手动生图：不标 pending、不调 API，卡片只显示照片描述，用户点开后再生成
+    // （朋友圈开关「总是自动生图」打开时不看主设置，一律自动）
+    const manualPhoto = Boolean(parsed.photoDescription) && isMomentsManualImageGeneration(isManualImageGeneration());
     const post = addMomentPost({
         authorType: "character",
         authorId: context.characterId,
         content: parsed.content,
         photoDescription: parsed.photoDescription,
+        photoType: parsed.photoType,
         photoUseReferenceImage: parsed.photoUseReferenceImage === true,
-        photoGenerationStatus: parsed.photoDescription ? "pending" : undefined,
+        photoUseUserReferenceImage: parsed.photoUseUserReferenceImage === true,
+        photoGenerationStatus: parsed.photoDescription && !manualPhoto ? "pending" : undefined,
         visibility,
     });
     if (!post) {
@@ -324,8 +331,8 @@ async function dispatchMomentsPost(action: ActionTag, context: ActionContext): P
         return;
     }
 
-    if (parsed.photoDescription) {
-        attachMomentPhotoInBackground(post.id, parsed.photoDescription, context.characterId, parsed.photoUseReferenceImage === true, context.signal);
+    if (parsed.photoDescription && !manualPhoto) {
+        attachMomentPhotoInBackground(post.id, parsed.photoDescription, context.characterId, parsed.photoType ?? "scene", context.signal);
     }
 
     console.log(`[ActionParser] Created moments post from ${context.sourceEngine} engine`);

@@ -42,11 +42,12 @@ import {
     resolvePromptTimeAware,
     type PromptTimestampOptions,
 } from "./prompt-time";
+import { resolvePhotoType } from "./rich-message-parser";
 
 function formatPhotoDirectiveForPrompt(msg: ChatMessage): string {
     const description = msg.mediaData?.label?.trim() || "图片";
-    const mode = msg.mediaData?.useReferenceImage === true ? "使用参考图" : "不使用参考图";
-    return `[照片:${mode}:${description}]`;
+    const photoType = resolvePhotoType(msg.mediaData);
+    return `[照片:${photoType}:${description}]`;
 }
 
 export type NativeTimelineEntry = {
@@ -425,8 +426,12 @@ export function loadNativeTimeline(
         // Build post line
         const postLabel = formatPromptEventLabel("朋友圈", post.createdAt, timeAware, timestampOptions);
         const locationPart = post.location ? ` 📍${post.location}` : "";
-        const photoMode = post.photoUseReferenceImage === true ? "使用参考图" : "不使用参考图";
-        const photoPart = post.photoDescription ? `，[照片:${photoMode}:${post.photoDescription}]` : "";
+        const photoType = resolvePhotoType({
+            photoType: post.photoType,
+            useReferenceImage: post.photoUseReferenceImage,
+            useUserReferenceImage: post.photoUseUserReferenceImage,
+        });
+        const photoPart = post.photoDescription ? `，[照片:${photoType}:${post.photoDescription}]` : "";
         const lines: string[] = [
             `${postLabel} ${authorName}发了一条动态："${post.content}"${photoPart}${locationPart}`,
         ];

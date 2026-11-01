@@ -65,6 +65,35 @@ function parseMuteMinutes(num?: string, unit?: string): number {
     return n;
 }
 
+// ── Photo type ([照片:类型:描述]) ──────────────────────
+
+export type PhotoType = "scene" | "char" | "user" | "people";
+
+export const PHOTO_TYPES: readonly PhotoType[] = ["scene", "char", "user", "people"];
+
+/** 照片类型 → 生图时传哪张参考图 */
+export function photoTypeToReferenceFlags(photoType: PhotoType): { useReferenceImage: boolean; useUserReferenceImage: boolean } {
+    return {
+        useReferenceImage: photoType === "char" || photoType === "people",
+        useUserReferenceImage: photoType === "user" || photoType === "people",
+    };
+}
+
+/** 两个勾选 → 照片类型 */
+export function referenceFlagsToPhotoType(useReferenceImage?: boolean, useUserReferenceImage?: boolean): PhotoType {
+    if (useReferenceImage && useUserReferenceImage) return "people";
+    if (useReferenceImage) return "char";
+    if (useUserReferenceImage) return "user";
+    return "scene";
+}
+
+/** 读消息的照片类型：优先用 photoType，旧消息没有该字段时按两个旧开关推算 */
+export function resolvePhotoType(mediaData?: { photoType?: string; useReferenceImage?: boolean; useUserReferenceImage?: boolean }): PhotoType {
+    const raw = mediaData?.photoType;
+    if (raw && (PHOTO_TYPES as readonly string[]).includes(raw)) return raw as PhotoType;
+    return referenceFlagsToPhotoType(mediaData?.useReferenceImage === true, mediaData?.useUserReferenceImage === true);
+}
+
 const RICH_PATTERNS: {
     regex: RegExp;
     build: (m: RegExpMatchArray) => ParsedMessagePart;
@@ -166,24 +195,39 @@ const RICH_PATTERNS: {
         }),
     },
     {
-        regex: new RegExp(`\\[照片${C}(使用参考图|不使用参考图)${C}([^\\]]+)\\]`),
-        build: (m) => ({
-            content: "",
-            mediaType: "image",
-            mediaData: { label: m[2].trim(), useReferenceImage: m[1] === "使用参考图" },
-        }),
-    },
-    {
-        regex: new RegExp(`\\[照片${C}([^\\]]+)\\]`),
+        // 新格式：[照片:类型:描述]，类型 = scene / char / user / people（大小写不敏感，兼容全角方括号）
+        regex: new RegExp(`[\\[［]照片${C}(scene|char|user|people)${C}([^\\]］]+)[\\]］]`, "i"),
         build: (m) => {
-            const label = m[1].trim();
+            const photoType = m[1].toLowerCase() as PhotoType;
             return {
                 content: "",
                 mediaType: "image",
-                mediaData: {
-                    label,
-                    useReferenceImage: /(?:自拍|对镜拍|selfie)/i.test(label),
-                },
+                mediaData: { label: m[2].trim(), photoType, ...photoTypeToReferenceFlags(photoType) },
+            };
+        },
+    },
+    {
+        // 旧格式兼容：使用参考图 → char，不使用参考图 → scene
+        regex: new RegExp(`[\\[［]照片${C}(使用参考图|不使用参考图)${C}([^\\]］]+)[\\]］]`),
+        build: (m) => {
+            const photoType: PhotoType = m[1] === "使用参考图" ? "char" : "scene";
+            return {
+                content: "",
+                mediaType: "image",
+                mediaData: { label: m[2].trim(), photoType, ...photoTypeToReferenceFlags(photoType) },
+            };
+        },
+    },
+    {
+        // 最旧格式：[照片:描述]，描述含自拍类词按 char，否则按 scene
+        regex: new RegExp(`[\\[［]照片${C}([^\\]］]+)[\\]］]`),
+        build: (m) => {
+            const label = m[1].trim();
+            const photoType: PhotoType = /(?:自拍|对镜拍|selfie)/i.test(label) ? "char" : "scene";
+            return {
+                content: "",
+                mediaType: "image",
+                mediaData: { label, photoType, ...photoTypeToReferenceFlags(photoType) },
             };
         },
     },

@@ -12,6 +12,7 @@ import { loadCharacters } from "./character-storage";
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
 import { emitChatPluginEvent, runChatPluginTransformSync } from "./chat-plugin-hooks";
 import { parseAIResponse } from "./rich-message-parser";
+import type { PhotoType } from "./rich-message-parser";
 import { extractTextToolDirectiveText } from "./text-tool-protocol";
 
 export const DEFAULT_VISION_IMAGE_PROMPT_LIMIT = 1;
@@ -213,6 +214,8 @@ export type ChatMessage = {
         fileName?: string;
         fileDuration?: number;
         useReferenceImage?: boolean; // AI photo tag: whether to send the character reference image to the generator
+        useUserReferenceImage?: boolean; // whether to send the user reference image to the generator
+        photoType?: "scene" | "char" | "user" | "people"; // [照片:类型:描述]：scene=纯场景 char=角色 user=用户 people=双人
         imageGenerationMediaRef?: string;
         imageGenerationPrompt?: string;
         imageGenerationUsedReference?: boolean;
@@ -1833,7 +1836,7 @@ function replacePhotoDirectiveDescription(
     text: string | undefined,
     oldDescription: string,
     nextDescription: string,
-    nextUseReferenceImage?: boolean,
+    nextPhotoType?: PhotoType,
 ): string | undefined {
     const oldDesc = oldDescription.trim();
     const nextDesc = nextDescription.trim();
@@ -1841,42 +1844,40 @@ function replacePhotoDirectiveDescription(
     // 放宽成"原描述为空也改"会把其它照片的描述一并覆盖。
     if (!text || !oldDesc || !nextDesc) return text;
 
+    // 统一匹配三种写法（新类型 / 旧中文模式 / 无模式），兼容全角方括号；
+    // 命中目标描述后一律改写为新格式 [照片:类型:描述]，类型缺省时保留原类型。
     let changed = false;
-    const withExplicitMode = text.replace(/\[照片[:：]\s*(使用参考图|不使用参考图)\s*[:：]\s*([^\]]+?)\]/g, (full, mode: string, desc: string) => {
-        if (desc.trim() !== oldDesc) return full;
-        const targetMode = nextUseReferenceImage !== undefined
-            ? (nextUseReferenceImage ? "使用参考图" : "不使用参考图")
-            : mode;
-        if (targetMode === mode && desc.trim() === nextDesc) return full;
-        changed = true;
-        return `[照片:${targetMode}:${nextDesc}]`;
-    });
-    if (changed) return withExplicitMode;
-
-    return text.replace(/\[照片[:：]\s*([^\]]+?)\]/g, (full, desc: string) => {
-        if (desc.trim() !== oldDesc) return full;
-        const targetMode = nextUseReferenceImage !== undefined
-            ? (nextUseReferenceImage ? "使用参考图" : "不使用参考图")
-            : undefined;
-        const replacement = targetMode ? `[照片:${targetMode}:${nextDesc}]` : `[照片:${nextDesc}]`;
-        if (replacement === full) return full;
-        changed = true;
-        return replacement;
-    });
+    const replaced = text.replace(
+        /[\[［]照片[:：]\s*(?:(scene|char|user|people|使用参考图|不使用参考图)\s*[:：]\s*)?([^\]］]+?)[\]］]/gi,
+        (full, mode: string | undefined, desc: string) => {
+            if (desc.trim() !== oldDesc) return full;
+            const currentType: PhotoType = !mode
+                ? (/(?:自拍|对镜拍|selfie)/i.test(desc) ? "char" : "scene")
+                : mode === "使用参考图" ? "char"
+                    : mode === "不使用参考图" ? "scene"
+                        : mode.toLowerCase() as PhotoType;
+            const targetType = nextPhotoType ?? currentType;
+            const replacement = `[照片:${targetType}:${nextDesc}]`;
+            if (replacement === full) return full;
+            changed = true;
+            return replacement;
+        },
+    );
+    return changed ? replaced : text;
 }
 
 export function syncChatGeneratedImagePromptText(
     messageId: string,
     oldDescription: string,
     nextDescription: string,
-    nextUseReferenceImage?: boolean,
+    nextPhotoType?: PhotoType,
 ): ChatMessage[] {
     const target = _messagesCache.find(m => m.id === messageId);
     if (!target) return [];
 
     const changed = new Map<string, ChatMessage>();
-    const targetNextRaw = replacePhotoDirectiveDescription(target.rawResponseText, oldDescription, nextDescription, nextUseReferenceImage);
-    const targetNextEditable = replacePhotoDirectiveDescription(target.editableResponseText, oldDescription, nextDescription, nextUseReferenceImage);
+    const targetNextRaw = replacePhotoDirectiveDescription(target.rawResponseText, oldDescription, nextDescription, nextPhotoType);
+    const targetNextEditable = replacePhotoDirectiveDescription(target.editableResponseText, oldDescription, nextDescription, nextPhotoType);
 
     if (target.rawResponseText && targetNextRaw && targetNextRaw !== target.rawResponseText && target.responseBatchId) {
         for (const msg of _messagesCache) {

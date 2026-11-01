@@ -920,3 +920,12 @@ export function hasUserReferenceImage(): boolean {
   const settings = loadImageGenerationSettings();
   return Boolean(settings.userReference?.assetId);
 }
+
+/**
+ * 「调用生图模式」是否为手动：手动时角色发的照片先只显示描述，用户点「生成图片」再调 API。
+ * 聊天室、后台主动消息、朋友圈发帖等所有自动生图入口都要先过这里。
+ */
+export function isManualImageGeneration(): boolean {
+  const settings = loadImageGenerationSettings();
+  return settings.triggerMode === "manual";
+}
