@@ -11,6 +11,9 @@ export const dynamic = "force-dynamic";
  *
  * 邮箱和授权码由浏览器每次随请求带上，站点不保存。收件人固定等于发件人，
  * 所以这个接口最多只能让人「给自己发信」，不能用来给别人发垃圾邮件。
+ *
+ * 返回体里的 maybeSent=true 表示正文已经交给 QQ、但没等到回执：信可能已经
+ * 寄到了，调用方不要自动重试（否则会重复投递）。
  */
 
 const QQ_MAIL_ADDRESS_PATTERN = /^[a-z0-9._-]{1,64}@(qq\.com|vip\.qq\.com|foxmail\.com)$/i;
@@ -37,8 +40,8 @@ function allowSend(key: string): boolean {
   return true;
 }
 
-function fail(error: string, status: number) {
-  return NextResponse.json({ ok: false, error }, { status });
+function fail(error: string, status: number, maybeSent = false) {
+  return NextResponse.json({ ok: false, error, maybeSent }, { status });
 }
 
 export async function POST(request: Request) {
@@ -69,8 +72,8 @@ export async function POST(request: Request) {
     await sendQqMail({ address, authCode, fromName, subject, text, html: html || undefined });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    const { message, status } = describeQqSmtpError(err);
+    const { message, status, maybeSent } = describeQqSmtpError(err);
     console.warn("[LetterMail] send failed:", message);
-    return fail(message, status);
+    return fail(message, status, maybeSent);
   }
 }

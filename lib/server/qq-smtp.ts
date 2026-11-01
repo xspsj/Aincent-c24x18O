@@ -6,7 +6,7 @@ import tls from "node:tls";
 //
 // 为什么不用 nodemailer：加依赖要同步更新 package-lock.json，在线提交时容易
 // 让 Netlify 的安装步骤失败。这里需要的只是 465 端口隐式 TLS + AUTH LOGIN +
-// 一封 UTF-8 正文，用 node:tls 自己写几十行就够了。
+// 一封 UTF-8 正文，用 node:tls 自己写就够了。
 //
 // 安全约束（改动前先读）：
 //   - 主机固定为 smtp.qq.com，不接受调用方传入主机；
@@ -15,13 +15,24 @@ import tls from "node:tls";
 
 const SMTP_HOST = "smtp.qq.com";
 const SMTP_PORT = 465;
-/** 单步等待上限。Netlify 函数默认约 26 秒超时，整体要留余量。 */
-const STEP_TIMEOUT_MS = 12_000;
+/**
+ * 整次发信的时间预算。Netlify 函数有运行时长上限（常见约 10 秒），超时会被
+ * 平台直接掐断、前端只能拿到一个 502 页面。预算留在上限以内，保证超时时
+ * 返回的是我们自己的、能区分「没寄出 / 可能已寄出」的结果。
+ */
+const TOTAL_BUDGET_MS = 8_500;
+const CONNECT_TIMEOUT_MS = 5_000;
 
 export type QqSmtpStage = "connect" | "auth" | "send";
 
 export class QqSmtpError extends Error {
-  constructor(public stage: QqSmtpStage, message: string, public code?: number) {
+  constructor(
+    public stage: QqSmtpStage,
+    message: string,
+    public code?: number,
+    /** 正文已经交给服务器、但没拿到明确回执：信可能已经寄到。 */
+    public maybeSent = false,
+  ) {
     super(message);
     this.name = "QqSmtpError";
   }
@@ -40,10 +51,9 @@ type SmtpReply = { code: number; text: string };
 
 /** 头部用的 RFC 2047 编码，按字符切块，避免单个 encoded-word 过长、也不切断汉字。 */
 function encodeHeaderWord(value: string): string {
-  const chars = Array.from(value);
   const chunks: string[] = [];
   let current = "";
-  for (const char of chars) {
+  for (const char of Array.from(value)) {
     if (Buffer.byteLength(current + char, "utf8") > 42) {
       chunks.push(current);
       current = "";
@@ -74,6 +84,7 @@ function buildMessage(input: QqMailInput): string {
     "MIME-Version: 1.0",
   ];
 
+  // base64 字母表里没有「.」，正文不会出现以「.」开头的行，不需要 dot-stuffing。
   if (!input.html) {
     return [
       ...headers,
@@ -101,7 +112,6 @@ function buildMessage(input: QqMailInput): string {
     base64Lines(input.html),
     `--${boundary}--`,
   ].join("\r\n");
-  // base64 字母表里没有「.」，所以正文不会出现以「.」开头的行，不需要 dot-stuffing。
 }
 
 /** 把服务器多行应答（250-xxx ... 250 xxx）拼成一条。 */
@@ -113,12 +123,13 @@ function createReplyReader(socket: tls.TLSSocket) {
   let failure: Error | null = null;
 
   const flush = () => {
-    if (waiter && ready.length > 0) {
+    if (!waiter) return;
+    if (ready.length > 0) {
       const current = waiter;
       waiter = null;
       clearTimeout(current.timer);
       current.resolve(ready.shift()!);
-    } else if (waiter && failure) {
+    } else if (failure) {
       const current = waiter;
       waiter = null;
       clearTimeout(current.timer);
@@ -148,11 +159,11 @@ function createReplyReader(socket: tls.TLSSocket) {
   socket.on("error", fail);
   socket.on("close", () => fail(new Error("连接被服务器关闭")));
 
-  return (stage: QqSmtpStage): Promise<SmtpReply> => new Promise((resolve, reject) => {
+  return (stage: QqSmtpStage, timeoutMs: number): Promise<SmtpReply> => new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       waiter = null;
       reject(new QqSmtpError(stage, "QQ 邮箱服务器响应超时"));
-    }, STEP_TIMEOUT_MS);
+    }, Math.max(200, timeoutMs));
     waiter = { resolve, reject, timer };
     flush();
   });
@@ -164,7 +175,7 @@ function connect(): Promise<tls.TLSSocket> {
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new QqSmtpError("connect", "连接 QQ 邮箱服务器超时"));
-    }, STEP_TIMEOUT_MS);
+    }, CONNECT_TIMEOUT_MS);
     socket.once("secureConnect", () => {
       clearTimeout(timer);
       resolve(socket);
@@ -176,22 +187,26 @@ function connect(): Promise<tls.TLSSocket> {
   });
 }
 
-/** 发信。成功返回服务器给的队列信息，失败抛 QqSmtpError。 */
+/** 发信。成功返回服务器给的回执，失败抛 QqSmtpError。 */
 export async function sendQqMail(input: QqMailInput): Promise<{ response: string }> {
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
   const socket = await connect();
   // 连上后立即挂读取器：服务器的 220 欢迎语可能在下一行代码之前就到了
   const read = createReplyReader(socket);
   const write = (line: string) => socket.write(`${line}\r\n`);
+  let dataSent = false;
 
   const expect = async (stage: QqSmtpStage, accepted: number[], failMessage: string): Promise<SmtpReply> => {
     let reply: SmtpReply;
     try {
-      reply = await read(stage);
+      reply = await read(stage, deadline - Date.now());
     } catch (err) {
-      if (err instanceof QqSmtpError) throw err;
-      throw new QqSmtpError(stage, err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      // 正文已经发出去之后断线或超时，服务器可能已经收下了这封信
+      throw new QqSmtpError(stage, message, undefined, dataSent);
     }
     if (!accepted.includes(reply.code)) {
+      // 服务器明确回了拒绝码：确定没寄出
       throw new QqSmtpError(stage, `${failMessage}（${reply.code} ${reply.text}）`, reply.code);
     }
     return reply;
@@ -216,6 +231,7 @@ export async function sendQqMail(input: QqMailInput): Promise<{ response: string
     write("DATA");
     await expect("send", [354], "服务器不接受正文");
     socket.write(`${buildMessage(input)}\r\n.\r\n`);
+    dataSent = true;
     const accepted = await expect("send", [250], "邮件被拒收");
 
     write("QUIT");
@@ -226,18 +242,26 @@ export async function sendQqMail(input: QqMailInput): Promise<{ response: string
 }
 
 /** 给前端看的错误说明。不包含授权码。 */
-export function describeQqSmtpError(err: unknown): { message: string; status: number } {
+export function describeQqSmtpError(err: unknown): { message: string; status: number; maybeSent: boolean } {
   if (err instanceof QqSmtpError) {
+    if (err.maybeSent) {
+      return {
+        message: "信已经交给 QQ 邮箱，但没等到确认回执，可能已经寄到了。请先去邮箱看看，不要急着重发。",
+        status: 504,
+        maybeSent: true,
+      };
+    }
     if (err.stage === "auth" && (err.code === 535 || err.code === 534 || err.code === 530)) {
       return {
         message: "QQ 邮箱登录失败：授权码不对，或者邮箱还没开启 SMTP 服务。授权码不是 QQ 密码，请到 QQ 邮箱「设置 → 账户 → POP3/SMTP 服务」重新生成。",
         status: 401,
+        maybeSent: false,
       };
     }
     if (err.stage === "send" && (err.code === 550 || err.code === 554)) {
-      return { message: `QQ 邮箱拒收了这封信，可能被判为垃圾邮件或发信太频繁。${err.message}`, status: 502 };
+      return { message: `QQ 邮箱拒收了这封信，可能被判为垃圾邮件或发信太频繁。${err.message}`, status: 502, maybeSent: false };
     }
-    return { message: err.message, status: err.stage === "connect" ? 504 : 502 };
+    return { message: err.message, status: err.stage === "connect" ? 504 : 502, maybeSent: false };
   }
-  return { message: "发信失败，请稍后再试。", status: 500 };
+  return { message: "发信失败，请稍后再试。", status: 500, maybeSent: false };
 }

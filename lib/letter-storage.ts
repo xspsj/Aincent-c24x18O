@@ -1,4 +1,4 @@
-import { kvGet, kvKeysWithPrefix, kvRemove, kvSet, registerDynamicPrefix } from "./kv-db";
+import { kvGet, kvGetFresh, kvKeysWithPrefix, kvRemove, kvSet, registerDynamicPrefix } from "./kv-db";
 import type { Letter, LetterInput, LetterMailConfig, LetterMailStatus, LetterReply, LetterTrigger } from "./letter-types";
 
 // ── 信件：按角色分开存，一个角色一个键 ──
@@ -49,7 +49,7 @@ function dispatchLettersUpdated(characterId: string): void {
   window.dispatchEvent(new CustomEvent(LETTERS_UPDATED_EVENT, { detail: { characterId } }));
 }
 
-const MAIL_STATUSES: LetterMailStatus[] = ["none", "pending", "sent", "failed"];
+const MAIL_STATUSES: LetterMailStatus[] = ["none", "pending", "sending", "sent", "uncertain", "failed"];
 const TRIGGERS: LetterTrigger[] = ["self", "timer", "manual"];
 
 function normalizeReplies(value: unknown): LetterReply[] {
@@ -97,6 +97,7 @@ export function normalizeLetter(raw: unknown): Letter | null {
     mailSentAt: validIso(record.mailSentAt),
     mailError: cleanText(record.mailError, 300) || undefined,
     mailAttempts: Math.max(0, Math.floor(Number(record.mailAttempts) || 0)),
+    mailLastAttemptAt: validIso(record.mailLastAttemptAt),
     replies: normalizeReplies(record.replies),
     createdAt,
     updatedAt: validIso(record.updatedAt) ?? createdAt,
@@ -108,12 +109,9 @@ export function isLetterSealed(letter: Letter, now = Date.now()): boolean {
   return letter.deliveryMode === "scheduled" && Date.parse(letter.unlockAt) > now;
 }
 
-/** 某个角色的全部信件，新的在前。 */
-export function loadLetters(characterId: string): Letter[] {
-  if (typeof window === "undefined" || !characterId) return [];
+function parseLetters(raw: string | null, characterId: string): Letter[] {
+  if (!raw) return [];
   try {
-    const raw = kvGet(storageKey(characterId));
-    if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed
@@ -123,6 +121,21 @@ export function loadLetters(characterId: string): Letter[] {
   } catch {
     return [];
   }
+}
+
+/** 某个角色的全部信件，新的在前。 */
+export function loadLetters(characterId: string): Letter[] {
+  if (typeof window === "undefined" || !characterId) return [];
+  return parseLetters(kvGet(storageKey(characterId)), characterId);
+}
+
+/**
+ * 绕过本标签页内存缓存、直接读 IndexedDB。投递前用它确认状态，
+ * 避免另一个标签页刚寄出的信在这里因为缓存过期又寄一次。
+ */
+export async function loadLettersFresh(characterId: string): Promise<Letter[]> {
+  if (typeof window === "undefined" || !characterId) return [];
+  return parseLetters(await kvGetFresh(storageKey(characterId)), characterId);
 }
 
 /** 有信件的角色 id 列表。 */
@@ -180,6 +193,12 @@ export function updateLetter(characterId: string, id: string, patch: Partial<Omi
   letters[index] = next;
   saveLetters(characterId, letters);
   return next;
+}
+
+/** 第一次拆开时记下时间。待拆封的信不会被标记。 */
+export function markLetterOpened(letter: Letter): void {
+  if (letter.openedAt || isLetterSealed(letter)) return;
+  updateLetter(letter.characterId, letter.id, { openedAt: new Date().toISOString() });
 }
 
 /** 删除一封信。第 4 步会在这里同时删掉它对应的短期记忆事件。 */

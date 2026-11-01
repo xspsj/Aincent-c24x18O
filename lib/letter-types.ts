@@ -8,15 +8,17 @@
 
 export type LetterDeliveryMode = "immediate" | "scheduled";
 
-/** 信是怎么来的：角色自主决定写的，还是用户设的写信节奏触发的。 */
+/** 信是怎么来的：角色自主决定写的、用户设的写信节奏触发的、手动/测试放入的。 */
 export type LetterTrigger = "self" | "timer" | "manual";
 
 /** 投递到现实 QQ 邮箱的状态。 */
 export type LetterMailStatus =
-  | "none"     // 没配邮箱，只存在手机里
-  | "pending"  // 等待投递（定时信未到点，或到点后等网页打开时补发）
-  | "sent"     // 已投递
-  | "failed";  // 投递失败（会在下次检查时重试，超过上限后停止）
+  | "none"       // 没配邮箱，只存在手机里
+  | "pending"    // 等待投递（定时信未到点，或到点后等网页打开时补发）
+  | "sending"    // 正在投递
+  | "sent"       // 已投递
+  | "uncertain"  // 正文已交给 QQ，但没等到回执：可能已经寄到。不自动重试，交给用户判断
+  | "failed";    // 确定没寄出（如授权码错）。自动重试，超过上限后停止
 
 /** 预留：回信。第一版不实现，只占住字段，后续加回信时不用迁移数据。 */
 export type LetterReply = {
@@ -44,6 +46,8 @@ export type Letter = {
   mailSentAt?: string;
   mailError?: string;
   mailAttempts: number;
+  /** 最近一次开始投递的时间，用于重试间隔与判断「投递中途关了网页」。 */
+  mailLastAttemptAt?: string;
   /** 预留：回信。 */
   replies: LetterReply[];
   createdAt: string;

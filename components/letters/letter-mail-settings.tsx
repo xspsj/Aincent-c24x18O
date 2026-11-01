@@ -18,7 +18,7 @@ type LetterMailSettingsProps = {
   onNotice?: (message: string) => void;
 };
 
-type Feedback = { tone: "ok" | "error"; text: string } | null;
+type Feedback = { tone: "ok" | "warn" | "error"; text: string } | null;
 
 function validate(address: string, authCode: string): string | null {
   if (!QQ_MAIL_ADDRESS_PATTERN.test(address)) return "请填写 QQ 邮箱地址（@qq.com / @foxmail.com / @vip.qq.com）。";
@@ -80,17 +80,22 @@ export function LetterMailSettings({ onNotice }: LetterMailSettingsProps) {
     setFeedback(null);
     const result = await sendLetterMail({ address: normalizedAddress, authCode: normalizedCode }, buildTestLetterMail());
     setTesting(false);
-    if (!result.ok) {
+    if (result.status === "failed") {
       setFeedback({ tone: "error", text: result.error });
       return;
     }
+    if (result.status === "uncertain") {
+      // 先保存，用户在邮箱里确认收到后就能用了；不标记「已验证」
+      setConfig(saveLetterMailConfig({ address: normalizedAddress, authCode: normalizedCode }));
+      setFeedback({ tone: "warn", text: `${result.error} 如果收到了，说明配置没问题，可以正常使用。` });
+      return;
+    }
     // 测试通过说明这组邮箱和授权码可用，顺手保存
-    const next = saveLetterMailConfig({
+    setConfig(saveLetterMailConfig({
       address: normalizedAddress,
       authCode: normalizedCode,
       verifiedAt: new Date().toISOString(),
-    });
-    setConfig(next);
+    }));
     setFeedback({ tone: "ok", text: `测试信已发出，去 ${normalizedAddress} 收件箱看看。没看到的话也翻一下垃圾箱。` });
   };
 
@@ -108,7 +113,7 @@ export function LetterMailSettings({ onNotice }: LetterMailSettingsProps) {
     ? { tone: "off", text: "未配置" }
     : config.verifiedAt
       ? { tone: "on", text: `已验证 · ${formatTime(config.verifiedAt)}` }
-      : { tone: "warn", text: "已保存，未发过测试信" };
+      : { tone: "warn", text: "已保存，未确认能收到信" };
 
   return (
     <section className="lt-mail-panel" aria-labelledby="lt-mail-title">

@@ -1,13 +1,137 @@
 /* 手记 → 信件 */
 
+.lt-app {
+  --lt-paper: #fbf8f1;
+  --lt-ink: #3a342c;
+  --lt-ink-soft: rgba(58, 52, 44, 0.55);
+  --lt-line: rgba(58, 52, 44, 0.12);
+  --lt-seal: #9d3b32;
+}
+
+.lt-header-action {
+  margin-left: auto;
+  position: relative;
+  z-index: 2;
+}
+
 .lt-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 18px 18px calc(28px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 18px calc(28px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* ── 角色切换 ── */
+
+.lt-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 10px 18px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.lt-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.lt-tab {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px 0 4px;
+  border: 1px solid var(--lt-line);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--lt-ink-soft);
+  font-size: calc(12.5px*var(--app-text-scale,1));
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.lt-tab.is-active {
+  border-color: var(--lt-ink);
+  background: var(--lt-ink);
+  color: #fff;
+}
+
+.lt-tab-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(58, 52, 44, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.lt-tab-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lt-tab-name {
+  max-width: 7em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-tab-dot {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lt-seal);
+}
+
+.lt-tab.is-active .lt-tab-dot {
+  background: #f1c9c3;
+}
+
+/* ── 提示 / 空状态 ── */
+
+.lt-banner {
+  border: 1px dashed rgba(165, 103, 28, 0.45);
+  background: rgba(165, 103, 28, 0.06);
+  color: #8a5717;
+  padding: 10px 12px;
+  font-size: calc(12px*var(--app-text-scale,1));
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lt-empty {
+  margin-top: 18vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--lt-ink-soft);
+  text-align: center;
+}
+
+.lt-empty p {
+  margin: 4px 0 0;
+  font-size: calc(14px*var(--app-text-scale,1));
+  color: var(--lt-ink);
+}
+
+.lt-empty span {
+  font-size: calc(12px*var(--app-text-scale,1));
 }
 
 .lt-placeholder {
@@ -16,6 +140,304 @@
   font-size: calc(12px*var(--app-text-scale,1));
   line-height: 1.6;
   color: rgba(26, 26, 28, 0.42);
+}
+
+/* ── 信件列表 ── */
+
+.lt-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lt-section-title {
+  margin: 0;
+  font-family: "Courier New", monospace;
+  font-size: calc(11px*var(--app-text-scale,1));
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  color: var(--lt-ink-soft);
+}
+
+.lt-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--lt-line);
+  background: var(--lt-paper);
+  color: var(--lt-ink);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 1px 2px rgba(45, 36, 24, 0.06);
+  transition: transform 0.15s ease;
+}
+
+.lt-card:active {
+  transform: scale(0.99);
+}
+
+.lt-card.is-sealed {
+  background:
+    repeating-linear-gradient(135deg, rgba(58, 52, 44, 0.035) 0 6px, transparent 6px 12px),
+    #f3efe6;
+  color: var(--lt-ink-soft);
+}
+
+.lt-card-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--lt-line);
+  color: var(--lt-ink-soft);
+}
+
+.lt-card.is-sealed .lt-card-icon {
+  color: var(--lt-seal);
+  border-color: rgba(157, 59, 50, 0.3);
+}
+
+.lt-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lt-card-main strong {
+  font-size: calc(15px*var(--app-text-scale,1));
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.lt-card-preview {
+  font-size: calc(12.5px*var(--app-text-scale,1));
+  line-height: 1.5;
+  color: var(--lt-ink-soft);
+}
+
+.lt-card-main em {
+  font-style: normal;
+  font-family: "Courier New", monospace;
+  font-size: calc(11px*var(--app-text-scale,1));
+  color: rgba(58, 52, 44, 0.45);
+}
+
+.lt-card-warn {
+  font-family: var(--app-font-family);
+  color: #a5671c;
+}
+
+.lt-unread-dot {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lt-seal);
+}
+
+/* ── 浮层（阅读 / 设置），限定在手机屏幕内 ── */
+
+.lt-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--page-header-safe-top, 48px) + 8px) 14px calc(18px + env(safe-area-inset-bottom, 0px));
+  background: rgba(30, 26, 20, 0.36);
+  animation: lt-fade-in 0.18s ease;
+}
+
+.lt-overlay-bottom {
+  align-items: flex-end;
+  padding: 0;
+}
+
+@keyframes lt-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 阅读页：信纸 */
+
+.lt-paper {
+  width: min(100%, 380px);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 31px, rgba(58, 52, 44, 0.07) 31px 32px),
+    var(--lt-paper);
+  color: var(--lt-ink);
+  box-shadow: 0 10px 30px rgba(30, 26, 20, 0.25);
+}
+
+.lt-paper-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 4px 0;
+}
+
+.lt-paper-bar .diary-icon-btn {
+  color: var(--lt-ink-soft);
+}
+
+.lt-paper-scroll {
+  overflow: auto;
+  padding: 4px 26px 24px;
+}
+
+.lt-paper-title {
+  margin: 0 0 18px;
+  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-size: calc(22px*var(--app-text-scale,1));
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.lt-paper-text {
+  margin: 0 0 1em;
+  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-size: calc(16px*var(--app-text-scale,1));
+  line-height: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lt-paper-sign {
+  margin: 26px 0 0;
+  text-align: right;
+  font-family: "NoteWall Ximai", var(--app-font-family);
+  font-size: calc(16px*var(--app-text-scale,1));
+}
+
+.lt-paper-date {
+  margin: 2px 0 0;
+  text-align: right;
+  font-family: "Courier New", monospace;
+  font-size: calc(11px*var(--app-text-scale,1));
+  color: var(--lt-ink-soft);
+}
+
+.lt-paper-mail {
+  margin-top: 26px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--lt-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: calc(11.5px*var(--app-text-scale,1));
+  line-height: 1.5;
+}
+
+.lt-mail-state {
+  color: var(--lt-ink-soft);
+}
+
+.lt-mail-state-sent {
+  color: #2f6b42;
+}
+
+.lt-mail-state-uncertain,
+.lt-mail-state-failed {
+  color: #a5671c;
+}
+
+.lt-mail-state-detail {
+  color: var(--lt-ink-soft);
+}
+
+.lt-mail-state-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.lt-mail-state-actions button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--lt-line);
+  background: #fff;
+  color: var(--lt-ink);
+  font-size: calc(12px*var(--app-text-scale,1));
+  cursor: pointer;
+}
+
+/* 设置：底部抽屉 */
+
+.lt-sheet {
+  width: 100%;
+  max-height: 88%;
+  display: flex;
+  flex-direction: column;
+  background: #fafaf8;
+  border-radius: 18px 18px 0 0;
+  animation: lt-sheet-up 0.22s ease;
+}
+
+@keyframes lt-sheet-up {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+
+.lt-sheet-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px 4px 20px;
+}
+
+.lt-sheet-head h2 {
+  margin: 0;
+  font-size: calc(15px*var(--app-text-scale,1));
+  font-weight: 600;
+}
+
+.lt-sheet-body {
+  overflow: auto;
+  padding: 6px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lt-sheet-body .lt-mail-panel {
+  width: 100%;
+}
+
+.lt-sheet-section {
+  padding: 16px 20px 18px;
+  background: #fff;
+  border: 1px solid rgba(26, 26, 28, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lt-sheet-section h3 {
+  margin: 0;
+  font-size: calc(14px*var(--app-text-scale,1));
+  font-weight: 600;
+}
+
+.lt-sheet-section p {
+  margin: 0;
+  font-size: calc(11.5px*var(--app-text-scale,1));
+  line-height: 1.65;
+  color: rgba(26, 26, 28, 0.5);
 }
 
 /* ── QQ 邮箱设置面板 ── */
@@ -143,6 +565,11 @@
 .lt-mail-feedback-ok {
   background: rgba(47, 122, 70, 0.08);
   color: #2f6b42;
+}
+
+.lt-mail-feedback-warn {
+  background: rgba(165, 103, 28, 0.08);
+  color: #8a5717;
 }
 
 .lt-mail-feedback-error {
