@@ -1,7 +1,7 @@
 import { saveChatImageToIndexedDB } from "./chat-asset-storage";
 import { syncChatGeneratedImagePromptText, updateChatMessage, type ChatMessage } from "./chat-storage";
 import { generatedImageFilename, generateImageFromConfiguredApi } from "./image-generation-service";
-import { referenceFlagsToPhotoType } from "./rich-message-parser";
+import { photoTypeToReferenceFlags, referenceFlagsToPhotoType, resolvePhotoType, type PhotoType } from "./rich-message-parser";
 import { updateMomentPost } from "./moments-storage";
 import type { MomentPost } from "./moments-types";
 
@@ -41,30 +41,33 @@ export function isPendingChatGeneratedImageMessage(message: Pick<ChatMessage, "m
 export async function generateAndApplyChatGeneratedImage(
     message: ChatMessage,
     characterId?: string,
-    options?: { signal?: AbortSignal; description?: string; useReferenceImage?: boolean; useUserReferenceImage?: boolean },
+    options?: { signal?: AbortSignal; description?: string; useReferenceImage?: boolean; useUserReferenceImage?: boolean; photoType?: PhotoType },
 ): Promise<ChatMessage> {
     const previousDescription = message.mediaData?.label?.trim() || "";
     const description = (options?.description ?? previousDescription).trim();
     if (!description) throw new Error("缺少图片描述，无法重新生成");
 
-    const effectiveUseReference = options?.useReferenceImage !== undefined
-        ? options.useReferenceImage
-        : (message.mediaData?.useReferenceImage === true);
-    const effectiveUseUserReference = options?.useUserReferenceImage !== undefined
-        ? options.useUserReferenceImage
-        : (message.mediaData?.useUserReferenceImage === true);
+    // 照片类型是唯一依据：显式传入的类型 > 显式传入的两个勾选 > 消息里已存的类型（旧消息按旧开关推算）
+    const previousType = resolvePhotoType(message.mediaData);
+    const photoType: PhotoType = options?.photoType
+        ?? (options?.useReferenceImage !== undefined || options?.useUserReferenceImage !== undefined
+            ? referenceFlagsToPhotoType(
+                options?.useReferenceImage ?? photoTypeToReferenceFlags(previousType).useReferenceImage,
+                options?.useUserReferenceImage ?? photoTypeToReferenceFlags(previousType).useUserReferenceImage,
+            )
+            : previousType);
+    const { useReferenceImage: effectiveUseReference, useUserReferenceImage: effectiveUseUserReference } = photoTypeToReferenceFlags(photoType);
+    const typeFields = {
+        photoType,
+        useReferenceImage: effectiveUseReference,
+        useUserReferenceImage: effectiveUseUserReference,
+    };
 
-    if (
-        (previousDescription && previousDescription !== description) ||
-        (options?.useReferenceImage !== undefined && options.useReferenceImage !== (message.mediaData?.useReferenceImage === true)) ||
-        (options?.useUserReferenceImage !== undefined && options.useUserReferenceImage !== (message.mediaData?.useUserReferenceImage === true))
-    ) {
-        syncChatGeneratedImagePromptText(
-            message.id,
-            previousDescription,
-            description,
-            referenceFlagsToPhotoType(effectiveUseReference, effectiveUseUserReference),
-        );
+    // 群聊里 char 指发这条消息的角色
+    const effectiveCharacterId = message.senderCharacterId || characterId;
+
+    if ((previousDescription && previousDescription !== description) || photoType !== previousType) {
+        syncChatGeneratedImagePromptText(message.id, previousDescription, description, photoType);
     }
 
     // 重试路径：先落库为 pending 并广播，气泡立刻切到"生成中"态（首次生图本来就是 pending，无需重写）。
@@ -74,8 +77,7 @@ export async function generateAndApplyChatGeneratedImage(
             mediaData: {
                 ...message.mediaData,
                 label: description,
-                useReferenceImage: effectiveUseReference,
-                useUserReferenceImage: effectiveUseUserReference,
+                ...typeFields,
                 imageGenerationStatus: "pending",
                 imageGenerationError: undefined,
             },
@@ -86,7 +88,7 @@ export async function generateAndApplyChatGeneratedImage(
     try {
         const generated = await generateImageFromConfiguredApi({
             description,
-            characterId,
+            characterId: effectiveCharacterId,
             useReferenceImage: effectiveUseReference,
             useUserReferenceImage: effectiveUseUserReference,
             signal: options?.signal,
@@ -100,7 +102,7 @@ export async function generateAndApplyChatGeneratedImage(
             label: description,
             fileType: "image",
             fileName,
-            useReferenceImage: effectiveUseReference,
+            ...typeFields,
             imageGenerationMediaRef: generated.mediaRef,
             imageGenerationPrompt: generated.prompt,
             imageGenerationUsedReference: generated.usedReferenceImage,
@@ -121,7 +123,7 @@ export async function generateAndApplyChatGeneratedImage(
             mediaData: {
                 ...message.mediaData,
                 label: description,
-                useReferenceImage: effectiveUseReference,
+                ...typeFields,
                 imageGenerationStatus: "failed",
                 imageGenerationError: errorToMessage(error),
             },
@@ -137,11 +139,13 @@ export async function retryChatGeneratedImage(
     nextDescription?: string,
     useReferenceImage?: boolean,
     useUserReferenceImage?: boolean,
+    photoType?: PhotoType,
 ): Promise<ChatMessage> {
     return generateAndApplyChatGeneratedImage(message, characterId, {
         description: nextDescription,
         useReferenceImage,
         useUserReferenceImage,
+        photoType,
     });
 }
 
