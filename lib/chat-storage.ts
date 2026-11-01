@@ -213,6 +213,8 @@ export type ChatMessage = {
         fileName?: string;
         fileDuration?: number;
         useReferenceImage?: boolean; // AI photo tag: whether to send the character reference image to the generator
+        useUserReferenceImage?: boolean; // whether to send the user reference image to the generator
+        photoType?: "scene" | "char" | "user" | "people"; // [照片:类型:描述]：scene=纯场景 char=角色 user=用户 people=双人
         imageGenerationMediaRef?: string;
         imageGenerationPrompt?: string;
         imageGenerationUsedReference?: boolean;
