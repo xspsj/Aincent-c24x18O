@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, ChevronLeft, Lock, Mail, Settings2, Trash2, X } from "lucide-react";
+import { Bot, ChevronLeft, Mail, Settings2, Trash2, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui";
 import { loadCharacters } from "@/lib/character-storage";
@@ -20,15 +20,16 @@ import {
 } from "@/lib/letter-storage";
 import type { Letter } from "@/lib/letter-types";
 
+import { LetterDrawer, formatUnlockTime } from "./letter-drawer";
+import { LetterEnvelopeStage } from "./letter-envelope-stage";
 import { LetterMailSettings } from "./letter-mail-settings";
-
-// 第 2 步：功能完整的基础版信箱（角色切换 / 列表 / 阅读 / 删除 / 设置）。
-// 第 3 步会把列表换成抽屉与拆信动画，数据和操作逻辑沿用这里。
 
 type LettersAppProps = {
   onBack: () => void;
   onNotice?: (message: string) => void;
 };
+
+type Pulled = { letterId: string; sourceEl: HTMLElement };
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
@@ -36,22 +37,29 @@ function formatDate(iso: string): string {
   return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function formatDateTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
 function mailStatusLabel(letter: Letter): string {
   switch (letter.mailStatus) {
     case "none": return "未投递到邮箱";
     case "pending": return isLetterSealed(letter) ? "到拆封时间后投递到邮箱" : "等待投递到邮箱";
     case "sending": return "正在投递到邮箱…";
-    case "sent": return letter.mailSentAt ? `已投递到邮箱 · ${formatDateTime(letter.mailSentAt)}` : "已投递到邮箱";
+    case "sent": return letter.mailSentAt ? `已投递到邮箱 · ${formatUnlockTime(letter.mailSentAt)}` : "已投递到邮箱";
     case "uncertain": return "可能已投递到邮箱，未收到确认";
     case "failed": return "投递到邮箱失败";
     default: return "";
   }
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    setReduced(query.matches);
+    const onChange = () => setReduced(query.matches);
+    query.addEventListener?.("change", onChange);
+    return () => query.removeEventListener?.("change", onChange);
+  }, []);
+  return reduced;
 }
 
 export function LettersApp({ onBack, onNotice }: LettersAppProps) {
@@ -59,12 +67,14 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [letterCharacterIds, setLetterCharacterIds] = useState<string[]>([]);
   const [activeCharacterId, setActiveCharacterId] = useState<string | null>(null);
   const [letters, setLetters] = useState<Letter[]>([]);
+  const [pulled, setPulled] = useState<Pulled | null>(null);
   const [readingId, setReadingId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<Letter | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(false);
   // 每 30 秒刷新一次「现在」，定时信到点后自动变成可拆
   const [now, setNow] = useState(() => Date.now());
+  const reducedMotion = usePrefersReducedMotion();
 
   const notify = useCallback((message: string) => onNotice?.(message), [onNotice]);
 
@@ -96,34 +106,50 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     return () => window.clearInterval(timer);
   }, []);
 
-  // 顶部角色：有信的角色在前，其余角色在后（没信也能切过去看「还没有信」）
+  // 顶部角色：有信的角色在前，其余角色在后（没信也能切过去看空抽屉）
   const tabs = useMemo(() => {
     const byId = new Map(characters.map(character => [character.id, character]));
     const first = letterCharacterIds
-      .map(id => byId.get(id) ?? { id, name: loadLetters(id)[0]?.characterName ?? "角色", avatar: "" } as Character);
+      .map(id => byId.get(id) ?? { id, name: loadLetters(id)[0]?.characterName ?? "角色", avatar: null } as Character);
     const rest = characters.filter(character => !letterCharacterIds.includes(character.id));
     return [...first, ...rest];
   }, [characters, letterCharacterIds]);
 
   const activeCharacter = tabs.find(item => item.id === activeCharacterId) ?? null;
-  const delivered = letters.filter(letter => !isLetterSealed(letter, now));
-  const sealed = letters.filter(letter => isLetterSealed(letter, now)).sort((a, b) => a.unlockAt.localeCompare(b.unlockAt));
+  const pulledLetter = pulled ? letters.find(letter => letter.id === pulled.letterId) ?? null : null;
   const readingLetter = readingId ? letters.find(letter => letter.id === readingId) ?? null : null;
+  // 抽出来、正在读的信，抽屉里都留着空位
+  const hiddenLetterId = pulled?.letterId ?? readingId;
 
-  const openLetter = (letter: Letter) => {
-    if (isLetterSealed(letter, now)) {
-      notify(`这封信要到 ${formatDateTime(letter.unlockAt)} 才能拆开。`);
-      return;
-    }
-    markLetterOpened(letter);
-    setReadingId(letter.id);
+  // 抽出来的那封信不在了（被别处删掉/切了角色），收起舞台，免得卡住后续操作
+  useEffect(() => {
+    if (pulled && !pulledLetter) setPulled(null);
+  }, [pulled, pulledLetter]);
+
+  const handlePull = (letter: Letter, slot: HTMLButtonElement) => {
+    if (pulled || readingId) return;
+    setPulled({ letterId: letter.id, sourceEl: slot });
+  };
+
+  const handleOpened = () => {
+    if (!pulledLetter) return;
+    markLetterOpened(pulledLetter);
+    setReadingId(pulledLetter.id);
+    setPulled(null);
   };
 
   const handleDelete = (letter: Letter) => {
     deleteLetter(letter.characterId, letter.id);
     setDeleteCandidate(null);
     setReadingId(current => current === letter.id ? null : current);
+    setPulled(current => current?.letterId === letter.id ? null : current);
     notify("信已删除。");
+  };
+
+  const switchCharacter = (characterId: string) => {
+    if (pulled) return;
+    setActiveCharacterId(characterId);
+    setReadingId(null);
   };
 
   const addSampleLetter = (scheduled: boolean) => {
@@ -142,7 +168,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
       trigger: "manual",
     }, { mailConfigured: isLetterMailConfigured() });
     setSettingsOpen(false);
-    notify(scheduled ? `已放入一封定时信，${formatDateTime(letter.unlockAt)} 可拆。` : "已放入一封示例信。");
+    notify(scheduled ? `已放入一封定时信，${formatUnlockTime(letter.unlockAt)} 可拆。` : "已放入一封示例信。");
   };
 
   return (
@@ -168,7 +194,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
               type="button"
               className={`lt-tab ${character.id === activeCharacterId ? "is-active" : ""}`}
               aria-pressed={character.id === activeCharacterId}
-              onClick={() => { setActiveCharacterId(character.id); setReadingId(null); }}
+              onClick={() => switchCharacter(character.id)}
             >
               <span className="lt-tab-avatar">
                 {character.avatar ? <img src={character.avatar} alt="" /> : <Bot size={16} />}
@@ -180,45 +206,44 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         </nav>
       ) : null}
 
-      <main className="lt-body">
-        {!mailConfigured ? (
-          <button type="button" className="lt-banner" onClick={() => setSettingsOpen(true)}>
-            还没配置 QQ 邮箱，信只会留在手机里。点这里去设置。
-          </button>
-        ) : null}
+      {!mailConfigured ? (
+        <button type="button" className="lt-banner" onClick={() => setSettingsOpen(true)}>
+          还没配置 QQ 邮箱，信只会留在手机里。点这里去设置。
+        </button>
+      ) : null}
 
-        {!activeCharacter ? (
-          <div className="lt-empty">
+      <main className="lt-drawer-area">
+        {activeCharacter ? (
+          <LetterDrawer
+            key={activeCharacter.id}
+            letters={letters}
+            characterName={activeCharacter.name}
+            avatar={activeCharacter.avatar}
+            now={now}
+            hiddenLetterId={hiddenLetterId}
+            onPull={handlePull}
+          />
+        ) : (
+          <div className="lt-drawer-none">
             <Mail size={30} strokeWidth={1.4} />
             <p>还没有角色。</p>
           </div>
-        ) : letters.length === 0 ? (
-          <div className="lt-empty">
-            <Mail size={30} strokeWidth={1.4} />
-            <p>{activeCharacter.name} 还没有给你写过信。</p>
-            <span>想写的时候，TA 会自己提笔。</span>
-          </div>
-        ) : (
-          <>
-            {sealed.length > 0 ? (
-              <section className="lt-section">
-                <h2 className="lt-section-title">待拆封 · {sealed.length}</h2>
-                {sealed.map(letter => (
-                  <LetterCard key={letter.id} letter={letter} sealed onOpen={() => openLetter(letter)} />
-                ))}
-              </section>
-            ) : null}
-            {delivered.length > 0 ? (
-              <section className="lt-section">
-                <h2 className="lt-section-title">已送达 · {delivered.length}</h2>
-                {delivered.map(letter => (
-                  <LetterCard key={letter.id} letter={letter} sealed={false} onOpen={() => openLetter(letter)} />
-                ))}
-              </section>
-            ) : null}
-          </>
         )}
       </main>
+
+      {pulled && pulledLetter ? (
+        <LetterEnvelopeStage
+          key={pulledLetter.id}
+          letter={pulledLetter}
+          avatar={activeCharacter?.avatar}
+          sealed={isLetterSealed(pulledLetter, now)}
+          sourceEl={pulled.sourceEl}
+          reducedMotion={reducedMotion}
+          onClosed={() => setPulled(null)}
+          onOpened={handleOpened}
+          onSealedTap={() => notify(`这封信要到 ${formatUnlockTime(pulledLetter.unlockAt)} 才能拆开。`)}
+        />
+      ) : null}
 
       {readingLetter ? (
         <LetterReader
@@ -254,35 +279,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   );
 }
 
-function LetterCard({ letter, sealed, onOpen }: { letter: Letter; sealed: boolean; onOpen: () => void }) {
-  if (sealed) {
-    return (
-      <button type="button" className="lt-card is-sealed" onClick={onOpen}>
-        <span className="lt-card-icon"><Lock size={16} strokeWidth={1.8} /></span>
-        <span className="lt-card-main">
-          <strong>一封还不能拆的信</strong>
-          <em>{formatDateTime(letter.unlockAt)} 启封</em>
-        </span>
-      </button>
-    );
-  }
-  const preview = letter.body.replace(/\s+/g, " ").trim();
-  return (
-    <button type="button" className={`lt-card ${letter.openedAt ? "" : "is-unread"}`} onClick={onOpen}>
-      <span className="lt-card-icon"><Mail size={16} strokeWidth={1.8} /></span>
-      <span className="lt-card-main">
-        <strong>{letter.title}</strong>
-        <span className="lt-card-preview">{preview.length > 48 ? `${preview.slice(0, 48)}…` : preview}</span>
-        <em>
-          {formatDate(letter.unlockAt)}
-          {letter.mailStatus === "failed" || letter.mailStatus === "uncertain" ? <span className="lt-card-warn"> · 邮箱投递需处理</span> : null}
-        </em>
-      </span>
-      {!letter.openedAt ? <span className="lt-unread-dot" aria-label="未读" /> : null}
-    </button>
-  );
-}
-
 function LetterReader({ letter, onClose, onDelete, onConfirmReceived, onResend }: {
   letter: Letter;
   onClose: () => void;
@@ -293,7 +289,7 @@ function LetterReader({ letter, onClose, onDelete, onConfirmReceived, onResend }
   const paragraphs = letter.body.split(/\n{2,}/);
   return (
     <div className="lt-overlay" role="dialog" aria-modal="true" aria-labelledby="lt-reader-title" onClick={onClose}>
-      <article className="lt-paper" onClick={event => event.stopPropagation()}>
+      <article className="lt-paper is-unfolding" onClick={event => event.stopPropagation()}>
         <header className="lt-paper-bar">
           <button type="button" className="diary-icon-btn" onClick={onDelete} aria-label="删除这封信">
             <Trash2 size={18} />
@@ -355,7 +351,7 @@ function LettersSettingsSheet({ activeCharacterName, onNotice, onAddSample, onCl
             <p>
               角色还不会自己写信（第 4 步接上）。先用这里给
               {activeCharacterName ? `「${activeCharacterName}」` : "当前角色"}
-              放一封示例信，试试列表、阅读和投递。做完第 4 步后这里会移除。
+              放一封示例信，试试抽屉、拆信和投递。做完第 4 步后这里会移除。
             </p>
             <div className="lt-mail-actions">
               <button type="button" className="lt-mail-btn" disabled={!activeCharacterName} onClick={() => onAddSample(false)}>
