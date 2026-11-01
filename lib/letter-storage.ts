@@ -1,9 +1,21 @@
 import { kvGet, kvGetFresh, kvKeysWithPrefix, kvRemove, kvSet, registerDynamicPrefix } from "./kv-db";
-import type { Letter, LetterInput, LetterMailConfig, LetterMailStatus, LetterReply, LetterTrigger } from "./letter-types";
+import { recordLetterEvent, removeLetterEvent } from "./letter-memory";
+import {
+  DEFAULT_LETTER_TIMER_SETTINGS,
+  type Letter,
+  type LetterInput,
+  type LetterMailConfig,
+  type LetterMailStatus,
+  type LetterReply,
+  type LetterTimerSettings,
+  type LetterTrigger,
+} from "./letter-types";
 
 // ── 信件：按角色分开存，一个角色一个键 ──
 export const LETTERS_KEY_PREFIX = "ai_phone_letters_v1:";
 export const LETTERS_UPDATED_EVENT = "letters-updated";
+export const LETTER_TIMER_SETTINGS_KEY = "ai_phone_letter_timer_settings_v1";
+export const LETTER_TIMER_SETTINGS_UPDATED_EVENT = "letter-timer-settings-updated";
 const MAX_LETTERS_PER_CHARACTER = 300;
 
 registerDynamicPrefix(LETTERS_KEY_PREFIX);
@@ -160,7 +172,7 @@ function saveLetters(characterId: string, letters: Letter[]): void {
   dispatchLettersUpdated(characterId);
 }
 
-export function createLetter(input: LetterInput, options: { mailConfigured: boolean }): Letter {
+export function createLetter(input: LetterInput, options: { mailConfigured: boolean; userName?: string }): Letter {
   const now = new Date().toISOString();
   const body = cleanMultilineText(input.body, 8000);
   const scheduled = input.deliveryMode === "scheduled" && Boolean(validIso(input.unlockAt))
@@ -182,6 +194,12 @@ export function createLetter(input: LetterInput, options: { mailConfigured: bool
     updatedAt: now,
   };
   saveLetters(letter.characterId, [letter, ...loadLetters(letter.characterId)]);
+  // 第 4 步：同时将信件摘要记入该角色的短期记忆事件流
+  try {
+    recordLetterEvent(letter, options.userName || "用户");
+  } catch (err) {
+    console.warn("[LetterStorage] failed to record letter memory event:", err);
+  }
   return letter;
 }
 
@@ -195,16 +213,29 @@ export function updateLetter(characterId: string, id: string, patch: Partial<Omi
   return next;
 }
 
-/** 第一次拆开时记下时间。待拆封的信不会被标记。 */
-export function markLetterOpened(letter: Letter): void {
+/** 第一次拆开时记下时间，并更新短期记忆文本为「已被拆阅」。 */
+export function markLetterOpened(letter: Letter, userName = "用户"): void {
   if (letter.openedAt || isLetterSealed(letter)) return;
-  updateLetter(letter.characterId, letter.id, { openedAt: new Date().toISOString() });
+  const openedAt = new Date().toISOString();
+  const updated = updateLetter(letter.characterId, letter.id, { openedAt });
+  if (updated) {
+    try {
+      recordLetterEvent(updated, userName);
+    } catch (err) {
+      console.warn("[LetterStorage] failed to update letter memory event on open:", err);
+    }
+  }
 }
 
-/** 删除一封信。第 4 步会在这里同时删掉它对应的短期记忆事件。 */
+/** 删除一封信。同时精确清除它在短期记忆里对应的投影事件。 */
 export function deleteLetter(characterId: string, id: string): void {
   if (!characterId || !id) return;
   saveLetters(characterId, loadLetters(characterId).filter(letter => letter.id !== id));
+  try {
+    removeLetterEvent(characterId, id);
+  } catch (err) {
+    console.warn("[LetterStorage] failed to remove letter memory event on delete:", err);
+  }
 }
 
 // ── QQ 邮箱配置读写 ──
@@ -248,4 +279,37 @@ export function saveLetterMailConfig(input: { address: string; authCode: string;
 export function clearLetterMailConfig(): void {
   kvRemove(LETTER_MAIL_CONFIG_KEY);
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(LETTER_MAIL_CONFIG_UPDATED_EVENT));
+}
+
+// ── 写信节奏定时配置 ──
+
+export function loadLetterTimerSettings(): LetterTimerSettings {
+  if (typeof window === "undefined") return DEFAULT_LETTER_TIMER_SETTINGS;
+  try {
+    const raw = kvGet(LETTER_TIMER_SETTINGS_KEY);
+    if (!raw) return DEFAULT_LETTER_TIMER_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<LetterTimerSettings>;
+    const lastRunAtByCharacter = parsed.lastRunAtByCharacter && typeof parsed.lastRunAtByCharacter === "object"
+      ? Object.fromEntries(Object.entries(parsed.lastRunAtByCharacter).map(([key, value]) => [key, String(value)]))
+      : {};
+    return {
+      enabled: Boolean(parsed.enabled),
+      intervalHours: Math.max(1, Math.min(720, Number(parsed.intervalHours) || 72)),
+      characterIds: Array.isArray(parsed.characterIds) ? parsed.characterIds.map(String).filter(Boolean) : [],
+      lastRunAtByCharacter,
+    };
+  } catch {
+    return DEFAULT_LETTER_TIMER_SETTINGS;
+  }
+}
+
+export function saveLetterTimerSettings(settings: LetterTimerSettings): void {
+  if (typeof window === "undefined") return;
+  kvSet(LETTER_TIMER_SETTINGS_KEY, JSON.stringify({
+    enabled: Boolean(settings.enabled),
+    intervalHours: Math.max(1, Math.min(720, Number(settings.intervalHours) || 72)),
+    characterIds: settings.characterIds,
+    lastRunAtByCharacter: settings.lastRunAtByCharacter,
+  }));
+  window.dispatchEvent(new CustomEvent(LETTER_TIMER_SETTINGS_UPDATED_EVENT));
 }

@@ -19,6 +19,7 @@ import { loadGameProjectionEntries } from "./game-storage";
 import { loadDiaryEntries } from "./diary-entry-storage";
 import type { DiaryEntry, DiaryEntryBlock } from "./diary-entry-types";
 import { loadNoteWallProjectionEntries } from "./notewall-memory";
+import { loadLetterProjectionEntries } from "./letter-memory";
 import { loadXiaohongshuProjectionEntries } from "./xiaohongshu-memory";
 import { formatXiaohongshuShareForPrompt } from "./chat-share";
 import { loadBlackMarketTheaterProjectionEntries } from "./black-market-storage";
@@ -679,6 +680,26 @@ export function loadNativeTimeline(
             content: formatStoredPromptEventContent(noteWallEntry.content, {
                 label: "便签墙",
                 timestamp: noteWallEntry.timestamp,
+                timeAware,
+                timestampOptions,
+            }),
+        });
+    }
+
+    // ── Letter projections (信件短期记忆投影) ──
+    const letterEntries = loadLetterProjectionEntries(characterId, {
+        afterTimestamp: options?.afterTimestamp,
+    });
+    for (const letterEntry of letterEntries) {
+        entries.push({
+            id: letterEntry.id,
+            sourceApp: "diary",
+            sourceDetail: "letter",
+            authorType: "character",
+            timestamp: letterEntry.timestamp,
+            content: formatStoredPromptEventContent(letterEntry.content, {
+                label: "信件",
+                timestamp: letterEntry.timestamp,
                 timeAware,
                 timestampOptions,
             }),

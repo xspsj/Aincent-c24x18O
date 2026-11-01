@@ -11,6 +11,25 @@ export type LetterDeliveryMode = "immediate" | "scheduled";
 /** 信是怎么来的：角色自主决定写的、用户设的写信节奏触发的、手动/测试放入的。 */
 export type LetterTrigger = "self" | "timer" | "manual";
 
+/** 角色写信的定时设置（参考手记定时器设计）。 */
+export type LetterTimerSettings = {
+  /** 是否开启节奏区间限制（未开启时仅靠角色自己想写时触发）。 */
+  enabled: boolean;
+  /** 检查/节奏间隔小时（默认 72 小时，即 3 天）。 */
+  intervalHours: number;
+  /** 允许自动写信的角色 ID 列表；空数组表示全部角色。 */
+  characterIds: string[];
+  /** 每个角色上次运行/检查的时间戳。 */
+  lastRunAtByCharacter: Record<string, string>;
+};
+
+export const DEFAULT_LETTER_TIMER_SETTINGS: LetterTimerSettings = {
+  enabled: false,
+  intervalHours: 72,
+  characterIds: [],
+  lastRunAtByCharacter: {},
+};
+
 /** 投递到现实 QQ 邮箱的状态。 */
 export type LetterMailStatus =
   | "none"       // 没配邮箱，只存在手机里

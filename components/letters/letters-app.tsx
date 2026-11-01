@@ -1,24 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, ChevronLeft, Mail, Settings2, Trash2, X } from "lucide-react";
+import { Bot, ChevronLeft, Clock3, Mail, PenTool, Settings2, Trash2, WandSparkles, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 import { confirmLetterMailReceived, requeueLetterMail } from "@/lib/letter-delivery-service";
+import { generateLetterForCharacter } from "@/lib/letter-engine";
 import {
   LETTERS_UPDATED_EVENT,
   LETTER_MAIL_CONFIG_UPDATED_EVENT,
-  createLetter,
+  LETTER_TIMER_SETTINGS_UPDATED_EVENT,
   deleteLetter,
   isLetterMailConfigured,
   isLetterSealed,
   listLetterCharacterIds,
+  loadLetterTimerSettings,
   loadLetters,
   markLetterOpened,
+  saveLetterTimerSettings,
 } from "@/lib/letter-storage";
-import type { Letter } from "@/lib/letter-types";
+import type { Letter, LetterTimerSettings } from "@/lib/letter-types";
 
 import { LetterDrawer, formatUnlockTime } from "./letter-drawer";
 import { LetterEnvelopeStage } from "./letter-envelope-stage";
@@ -72,6 +75,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [deleteCandidate, setDeleteCandidate] = useState<Letter | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [timerSettings, setTimerSettings] = useState<LetterTimerSettings>(() => loadLetterTimerSettings());
   // 每 30 秒刷新一次「现在」，定时信到点后自动变成可拆
   const [now, setNow] = useState(() => Date.now());
   const reducedMotion = usePrefersReducedMotion();
@@ -82,6 +87,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     setLetterCharacterIds(listLetterCharacterIds());
     setLetters(activeCharacterId ? loadLetters(activeCharacterId) : []);
     setMailConfigured(isLetterMailConfigured());
+    setTimerSettings(loadLetterTimerSettings());
   }, [activeCharacterId]);
 
   useEffect(() => {
@@ -95,9 +101,11 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     refresh();
     window.addEventListener(LETTERS_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+    window.addEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     return () => {
       window.removeEventListener(LETTERS_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+      window.removeEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     };
   }, [refresh]);
 
@@ -143,7 +151,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     setDeleteCandidate(null);
     setReadingId(current => current === letter.id ? null : current);
     setPulled(current => current?.letterId === letter.id ? null : current);
-    notify("信已删除。");
+    notify("信已删除，相关短期记忆已清除。");
   };
 
   const switchCharacter = (characterId: string) => {
@@ -152,23 +160,26 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     setReadingId(null);
   };
 
-  const addSampleLetter = (scheduled: boolean) => {
-    if (!activeCharacter) return;
-    const name = activeCharacter.name || "我";
-    const letter = createLetter({
-      characterId: activeCharacter.id,
-      characterName: name,
-      title: scheduled ? "等一会儿再拆" : "一封试试看的信",
-      body: scheduled
-        ? "这封信我想让你过两分钟再看。\n\n不是什么大事，只是想试试，让你等一等的感觉。到时间了，它会自己落到你的邮箱里。"
-        : "这是一封测试用的信。\n\n如果你在手机里和邮箱里都看到了它，说明信箱已经能用了。之后我想说的话，会这样寄给你。",
-      signature: name,
-      deliveryMode: scheduled ? "scheduled" : "immediate",
-      unlockAt: scheduled ? new Date(Date.now() + 2 * 60_000).toISOString() : undefined,
-      trigger: "manual",
-    }, { mailConfigured: isLetterMailConfigured() });
-    setSettingsOpen(false);
-    notify(scheduled ? `已放入一封定时信，${formatUnlockTime(letter.unlockAt)} 可拆。` : "已放入一封示例信。");
+  const handleManualTrigger = async () => {
+    if (!activeCharacter || generating) return;
+    setGenerating(true);
+    notify(`正在呼唤 ${activeCharacter.name} 提笔写信…`);
+    try {
+      const result = await generateLetterForCharacter(activeCharacter.id, "manual", true);
+      if (result.shouldWrite) {
+        notify(
+          result.deliveryMode === "scheduled"
+            ? `${activeCharacter.name} 寄来了一封定时信（${formatUnlockTime(result.unlockAt || "")} 启封）。`
+            : `${activeCharacter.name} 的信已落入信箱。`,
+        );
+      } else {
+        notify(result.reason || `${activeCharacter.name} 觉得此刻时机未到，暂未写信。`);
+      }
+    } catch (err) {
+      notify(`写信失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -181,9 +192,27 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
           <h1>信件</h1>
           <p>{activeCharacter ? `${activeCharacter.name} 寄给你的信` : "角色寄给你的信"}</p>
         </div>
-        <button type="button" className="diary-icon-btn lt-header-action" onClick={() => setSettingsOpen(true)} aria-label="信件设置">
-          <Settings2 size={19} />
-        </button>
+        <div className="flex items-center gap-1 lt-header-action">
+          <button
+            type="button"
+            className="diary-icon-btn"
+            disabled={!activeCharacter || generating}
+            onClick={handleManualTrigger}
+            aria-label="让TA写一封信"
+            title="让TA写一封信"
+          >
+            <PenTool size={18} className={generating ? "animate-pulse" : ""} />
+          </button>
+          <button
+            type="button"
+            className="diary-icon-btn"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="信件设置"
+            title="信件设置"
+          >
+            <Settings2 size={19} />
+          </button>
+        </div>
       </header>
 
       {tabs.length > 0 ? (
@@ -257,9 +286,10 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
 
       {settingsOpen ? (
         <LettersSettingsSheet
-          activeCharacterName={activeCharacter?.name ?? null}
+          characters={characters}
+          timerSettings={timerSettings}
           onNotice={notify}
-          onAddSample={addSampleLetter}
+          onSaveTimer={saveLetterTimerSettings}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
@@ -267,7 +297,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
       {deleteCandidate ? (
         <ConfirmDialog
           title="删除这封信？"
-          message="删除后手机里就找不到这封信了。已经投递到 QQ 邮箱的那一份不受影响。"
+          message="删除后手机里就找不到这封信了，短期记忆也会一并抹除。已经投递到 QQ 邮箱的那一份不受影响。"
           variant="danger"
           confirmLabel="删除"
           cancelLabel="取消"
@@ -328,12 +358,32 @@ function LetterReader({ letter, onClose, onDelete, onConfirmReceived, onResend }
   );
 }
 
-function LettersSettingsSheet({ activeCharacterName, onNotice, onAddSample, onClose }: {
-  activeCharacterName: string | null;
+function LettersSettingsSheet({ characters, timerSettings, onNotice, onSaveTimer, onClose }: {
+  characters: Character[];
+  timerSettings: LetterTimerSettings;
   onNotice: (message: string) => void;
-  onAddSample: (scheduled: boolean) => void;
+  onSaveTimer: (settings: LetterTimerSettings) => void;
   onClose: () => void;
 }) {
+  const [enabled, setEnabled] = useState(timerSettings.enabled);
+  const [intervalDays, setIntervalDays] = useState(Math.round(timerSettings.intervalHours / 24) || 3);
+  const [characterIds, setCharacterIds] = useState<string[]>(timerSettings.characterIds);
+
+  const toggleCharacter = (id: string) => {
+    setCharacterIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
+
+  const handleSaveTimer = () => {
+    const next: LetterTimerSettings = {
+      ...timerSettings,
+      enabled,
+      intervalHours: Math.max(1, intervalDays * 24),
+      characterIds,
+    };
+    onSaveTimer(next);
+    onNotice(enabled ? `写信节奏已开启（每 ${intervalDays} 天巡检）` : "写信节奏区间已关闭，完全由角色自主提笔");
+  };
+
   return (
     <div className="lt-overlay lt-overlay-bottom" role="dialog" aria-modal="true" aria-label="信件设置" onClick={onClose}>
       <section className="lt-sheet" onClick={event => event.stopPropagation()}>
@@ -347,20 +397,73 @@ function LettersSettingsSheet({ activeCharacterName, onNotice, onAddSample, onCl
           <LetterMailSettings onNotice={onNotice} />
 
           <section className="lt-sheet-section">
-            <h3>测试工具</h3>
-            <p>
-              角色还不会自己写信（第 4 步接上）。先用这里给
-              {activeCharacterName ? `「${activeCharacterName}」` : "当前角色"}
-              放一封示例信，试试抽屉、拆信和投递。做完第 4 步后这里会移除。
-            </p>
-            <div className="lt-mail-actions">
-              <button type="button" className="lt-mail-btn" disabled={!activeCharacterName} onClick={() => onAddSample(false)}>
-                立即送达
-              </button>
-              <button type="button" className="lt-mail-btn" disabled={!activeCharacterName} onClick={() => onAddSample(true)}>
-                2 分钟后启封
-              </button>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="flex items-center gap-1.5">
+                  <Clock3 size={15} />
+                  写信节奏区间（可选）
+                </h3>
+                <p className="mt-1">
+                  控制每隔几天让角色评估一次是否写信。关闭时完全由角色自主意愿驱动。
+                </p>
+              </div>
             </div>
+
+            <label className="flex items-center gap-2 mt-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={e => setEnabled(e.target.checked)}
+              />
+              <span>开启时间区间节奏限制</span>
+            </label>
+
+            {enabled ? (
+              <div className="flex flex-col gap-3 mt-2 pt-2 border-t border-black/5">
+                <label className="flex items-center justify-between text-xs text-gray-600">
+                  <span>巡检周期（天）</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={intervalDays}
+                    onChange={e => setIntervalDays(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-16 px-2 py-1 border border-black/15 text-center text-sm"
+                  />
+                </label>
+
+                <div>
+                  <span className="text-xs text-gray-500 block mb-1.5">生效角色（默认全部）</span>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                    {characters.map(char => {
+                      const selected = characterIds.includes(char.id);
+                      return (
+                        <button
+                          key={char.id}
+                          type="button"
+                          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                            selected
+                              ? "bg-black text-white border-black"
+                              : "bg-white text-gray-700 border-black/15 hover:border-black/30"
+                          }`}
+                          onClick={() => toggleCharacter(char.id)}
+                        >
+                          {char.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              className="lt-mail-btn mt-2 w-full text-xs"
+              onClick={handleSaveTimer}
+            >
+              保存节奏设置
+            </button>
           </section>
         </div>
       </section>
