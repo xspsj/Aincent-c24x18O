@@ -76,6 +76,12 @@
   overflow: hidden;
 }
 
+.lt-drawer.is-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
 .lt-drawer-well {
   flex: 1;
   min-height: 0;
@@ -156,6 +162,51 @@
   box-shadow: 0 2px 2px rgba(40, 25, 10, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
+/* ── 拖拽删除垃圾桶（同日记款） ── */
+
+.lt-drawer-trash {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 65;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #1a1a1c;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px rgba(26, 26, 28, 0.35), 0 1px 2px rgba(26, 26, 28, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(24px) scale(0.85);
+  transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.25, 1), background-color 0.18s ease;
+}
+
+.lt-drawer-trash.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.lt-drawer-trash.is-over {
+  background: #c94040;
+  box-shadow: 0 8px 24px rgba(201, 64, 64, 0.5), 0 2px 4px rgba(92, 24, 24, 0.2);
+  transform: translateX(-50%) translateY(-6px) scale(1.15);
+}
+
+/* 随手指滑动的半透明信封虚影 */
+.lt-drag-ghost {
+  position: fixed !important;
+  z-index: 75 !important;
+  margin-top: 0 !important;
+  pointer-events: none !important;
+  opacity: 0.9 !important;
+  transform: translate(-50%, -50%) rotate(1deg) scale(1.02) !important;
+  box-shadow: 0 10px 24px rgba(45, 36, 24, 0.3) !important;
+  transition: none !important;
+}
+
 /* ── 抽屉里的信封 ── */
 
 .lt-slot {
@@ -193,6 +244,11 @@
 
 .lt-slot.is-hidden {
   visibility: hidden;
+}
+
+.lt-slot.is-drag-source {
+  opacity: 0.25;
+  transform: scale(0.97);
 }
 
 .lt-slot[data-tone="1"] { --lt-env-a: #efe6dc; --lt-env-b: #e0d2c2; }

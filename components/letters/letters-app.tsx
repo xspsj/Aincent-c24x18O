@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Bot, ChevronLeft, Clock3, Mail, PenTool, Settings2, Trash2, WandSparkles, X } from "lucide-react";
+import { Bot, ChevronLeft, Clock3, Mail, PenTool, Settings2, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui";
 import { loadCharacters } from "@/lib/character-storage";
@@ -243,7 +243,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     setDeleteCandidate(null);
     setReadingId(current => (current === letter.id ? null : current));
     setPulled(current => (current?.letterId === letter.id ? null : current));
-    notify("信已删除，相关短期记忆已清除。");
+    notify("信已丢弃入碎纸箱，相关短期记忆已清除。");
   };
 
   const handleManualTrigger = async () => {
@@ -377,6 +377,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
             now={now}
             hiddenLetterId={hiddenLetterId}
             onPull={handlePull}
+            onRequestDelete={letter => setDeleteCandidate(letter)}
           />
 
           {/* 右下角悬浮“让TA写”按钮：小巧精致设计（52px） */}
@@ -409,17 +410,17 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
+      {/* 信件阅读大纸页：彻底移除左上角的垃圾桶按钮，只保留右上角纯粹关闭，沉浸阅读 */}
       {readingLetter ? (
         <LetterReader
           letter={readingLetter}
           onClose={() => setReadingId(null)}
-          onDelete={() => setDeleteCandidate(readingLetter)}
           onConfirmReceived={() => { confirmLetterMailReceived(readingLetter); notify("已标记为收到。"); }}
           onResend={() => { requeueLetterMail(readingLetter); notify("正在重新投递…"); }}
         />
       ) : null}
 
-      {/* Aa 字体上传与字号调节弹窗（手记同款） */}
+      {/* Aa 字体上传与字号调节弹窗 */}
       {fontPanelOpen ? (
         <div className="nw-modal-backdrop" role="dialog" aria-modal="true" onClick={() => setFontPanelOpen(false)}>
           <section className="diary-font-panel" onClick={event => event.stopPropagation()}>
@@ -472,11 +473,11 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
 
       {deleteCandidate ? (
         <ConfirmDialog
-          title="删除这封信？"
-          message="删除后手机里就找不到这封信了，短期记忆也会一并抹除。已经投递到 QQ 邮箱的那一份不受影响。"
+          title="丢弃这封信？"
+          message="确认后信件将从抽屉中彻底销毁，相关短期记忆也会一并抹除。已经投递到 QQ 邮箱的那一份不受影响。"
           variant="danger"
-          confirmLabel="删除"
-          cancelLabel="取消"
+          confirmLabel="丢入废纸篓"
+          cancelLabel="留着"
           onConfirm={() => handleDelete(deleteCandidate)}
           onCancel={() => setDeleteCandidate(null)}
         />
@@ -485,10 +486,14 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   );
 }
 
-function LetterReader({ letter, onClose, onDelete, onConfirmReceived, onResend }: {
+function LetterReader({
+  letter,
+  onClose,
+  onConfirmReceived,
+  onResend,
+}: {
   letter: Letter;
   onClose: () => void;
-  onDelete: () => void;
   onConfirmReceived: () => void;
   onResend: () => void;
 }) {
@@ -497,10 +502,8 @@ function LetterReader({ letter, onClose, onDelete, onConfirmReceived, onResend }
     <div className="lt-overlay" role="dialog" aria-modal="true" aria-labelledby="lt-reader-title" onClick={onClose}>
       <article className="lt-paper is-unfolding" onClick={event => event.stopPropagation()}>
         <header className="lt-paper-bar">
-          <button type="button" className="diary-icon-btn" onClick={onDelete} aria-label="删除这封信">
-            <Trash2 size={18} />
-          </button>
-          <button type="button" className="diary-icon-btn" onClick={onClose} aria-label="关闭">
+          <span style={{ width: 40 }} />
+          <button type="button" className="diary-icon-btn" onClick={onClose} aria-label="收起信纸">
             <X size={20} />
           </button>
         </header>
@@ -534,7 +537,13 @@ function LetterReader({ letter, onClose, onDelete, onConfirmReceived, onResend }
   );
 }
 
-function LettersSettingsSheet({ characters, timerSettings, onNotice, onSaveTimer, onClose }: {
+function LettersSettingsSheet({
+  characters,
+  timerSettings,
+  onNotice,
+  onSaveTimer,
+  onClose,
+}: {
   characters: Character[];
   timerSettings: LetterTimerSettings;
   onNotice: (message: string) => void;
