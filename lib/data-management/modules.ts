@@ -23,6 +23,8 @@ export const CLOUD_CREDENTIAL_KV_KEYS = ["ai_phone_cloud_backup_config_v1"];
 const KV_BACKUP_EXCLUDED_KEYS = [
   ...CLOUD_CREDENTIAL_KV_KEYS,
   "ai_phone_cloud_backup_state_v1",
+  // QQ 邮箱 SMTP 授权码：只留在本机，任何备份（含本地导出文件）都不带
+  "ai_phone_letter_mail_config_v1",
 ];
 
 // ⚠️ CONTRACT: this list is the single source of truth for BOTH the data
@@ -295,6 +297,7 @@ const PRIMARY_DATA_MODULES: DataModuleDefinition[] = [
           "music-playlist-detail-",
           "ai_phone_custom_app_data_v1:",
           "ai_phone_custom_app_timeline_v1:",
+          "ai_phone_letters_v1:",
         ],
       },
     ],
