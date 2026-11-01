@@ -19,6 +19,7 @@ import { clearRequestsForCharacter, dispatchFriendRequestUpdated } from "./frien
 import { sendBrowserNotification } from "./browser-notification";
 import type { MomentPost, MomentComment } from "./moments-types";
 import { attachMomentPhotoInBackground, parseMomentPostResponse } from "./moments-engine";
+import { isManualImageGeneration } from "./image-generation-service";
 import { isAbortError, throwIfAborted } from "./abort-utils";
 
 // ── Types ──
@@ -310,6 +311,8 @@ async function dispatchMomentsPost(action: ActionTag, context: ActionContext): P
     const visibility = contacts.map(c => c.characterId);
 
     // 先入库再生图：帖子立即可见，生图慢/超时/页面被杀都不会丢帖
+    // 手动生图：不标 pending、不调 API，卡片只显示照片描述，用户点开后再生成
+    const manualPhoto = Boolean(parsed.photoDescription) && isManualImageGeneration();
     const post = addMomentPost({
         authorType: "character",
         authorId: context.characterId,
@@ -318,7 +321,7 @@ async function dispatchMomentsPost(action: ActionTag, context: ActionContext): P
         photoType: parsed.photoType,
         photoUseReferenceImage: parsed.photoUseReferenceImage === true,
         photoUseUserReferenceImage: parsed.photoUseUserReferenceImage === true,
-        photoGenerationStatus: parsed.photoDescription ? "pending" : undefined,
+        photoGenerationStatus: parsed.photoDescription && !manualPhoto ? "pending" : undefined,
         visibility,
     });
     if (!post) {
@@ -326,7 +329,7 @@ async function dispatchMomentsPost(action: ActionTag, context: ActionContext): P
         return;
     }
 
-    if (parsed.photoDescription) {
+    if (parsed.photoDescription && !manualPhoto) {
         attachMomentPhotoInBackground(post.id, parsed.photoDescription, context.characterId, parsed.photoType ?? "scene", context.signal);
     }
 

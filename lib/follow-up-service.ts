@@ -43,6 +43,7 @@ import {
     generateAndApplyChatGeneratedImage,
     isPendingChatGeneratedImageMessage,
 } from "./generated-image-retry";
+import { isManualImageGeneration } from "./image-generation-service";
 import {
     loadTimedWakeSchedules,
     removeTimedWakeSchedule,
@@ -855,6 +856,14 @@ function buildGeneratedFollowUpImageMessage(
 
     const description = part.mediaData?.label?.trim();
     if (!description) return base;
+
+    // 手动生图：不标 pending，照片只显示描述，等用户点「生成图片」
+    if (isManualImageGeneration()) {
+        return {
+            ...base,
+            mediaData: { ...(part.mediaData || {}), label: description, imageGenerationStatus: undefined },
+        };
+    }
 
     return {
         ...base,

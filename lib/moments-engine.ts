@@ -52,7 +52,7 @@ import { bgSetInterval } from "./bg-timer";
 import { sendBrowserNotification } from "./browser-notification";
 import { buildTwoLevelMomentThreads } from "./moments-comment-threading";
 import { DEFAULT_MOMENTS_BILINGUAL_PROMPT, resolveBilingualPrompt } from "./bilingual-prompt-defaults";
-import { generateImageFromConfiguredApi } from "./image-generation-service";
+import { generateImageFromConfiguredApi, isManualImageGeneration } from "./image-generation-service";
 import { photoTypeToReferenceFlags, type PhotoType } from "./rich-message-parser";
 import { isAbortError, throwIfAborted } from "./abort-utils";
 import { getChatImageFromIndexedDB, saveChatImageToIndexedDB } from "./chat-asset-storage";
@@ -348,6 +348,8 @@ async function triggerAIPost(characterId: string): Promise<void> {
         const visibility = contacts.map(c => c.characterId);
 
         // 先入库再生图：帖子立即可见，生图慢/超时/页面被杀都不会丢帖
+        // 手动生图：不标 pending、不调 API，卡片只显示照片描述，用户点开后再生成
+        const manualPhoto = Boolean(parsed.photoDescription) && isManualImageGeneration();
         const post = addMomentPost({
             authorType: "character",
             authorId: characterId,
@@ -356,7 +358,7 @@ async function triggerAIPost(characterId: string): Promise<void> {
             photoType: parsed.photoType,
             photoUseReferenceImage: parsed.photoUseReferenceImage === true,
             photoUseUserReferenceImage: parsed.photoUseUserReferenceImage === true,
-            photoGenerationStatus: parsed.photoDescription ? "pending" : undefined,
+            photoGenerationStatus: parsed.photoDescription && !manualPhoto ? "pending" : undefined,
             visibility,
         });
         if (!post) {
@@ -364,7 +366,7 @@ async function triggerAIPost(characterId: string): Promise<void> {
             return;
         }
 
-        if (parsed.photoDescription) {
+        if (parsed.photoDescription && !manualPhoto) {
             attachMomentPhotoInBackground(post.id, parsed.photoDescription, characterId, parsed.photoType ?? "scene");
         }
 
