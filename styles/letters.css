@@ -11,10 +11,13 @@
   --lt-env-b: #e8dcc3;
 }
 
-.lt-header-action {
+.lt-header-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   position: relative;
-  z-index: 2;
+  z-index: 10;
 }
 
 /* ── 角色切换 ── */
@@ -138,7 +141,6 @@
   display: flex;
   flex-direction: column;
   border-radius: 6px 6px 4px 4px;
-  /* 抽屉内壁：深一点的木色，上沿阴影像是从柜子里拉出来 */
   background:
     linear-gradient(180deg, rgba(20, 14, 8, 0.32), rgba(20, 14, 8, 0) 26px),
     linear-gradient(90deg, rgba(20, 14, 8, 0.16), rgba(20, 14, 8, 0) 14px, rgba(20, 14, 8, 0) calc(100% - 14px), rgba(20, 14, 8, 0.16)),
@@ -173,7 +175,6 @@
   text-shadow: 0 1px 0 rgba(40, 25, 10, 0.35);
 }
 
-/* 抽屉前板：盖住最前面那封信的下半截 */
 .lt-drawer-front {
   position: absolute;
   left: -1px;
@@ -238,7 +239,6 @@
   width: 280px;
   max-width: 100%;
   height: var(--lt-slot-h);
-  /* 后一封盖住前一封，只露出 54px 的上沿 */
   margin-top: calc(54px - var(--lt-slot-h));
   padding: 0;
   border: none;
@@ -279,7 +279,6 @@
   --lt-env-b: #d2c2a3;
 }
 
-/* 信封封口的 V 形折线 */
 .lt-slot-flap {
   position: absolute;
   inset: 0 0 auto;
@@ -340,7 +339,6 @@
   background: var(--lt-seal);
 }
 
-/* 小火漆：只在最前面那封、没被盖住时看得见 */
 .lt-slot-seal {
   position: absolute;
   left: 50%;
@@ -376,7 +374,6 @@
   height: 100%;
   box-sizing: border-box;
   border: 3px solid #fff;
-  /* 齿孔边 */
   -webkit-mask: radial-gradient(circle at 3px 3px, transparent 1.6px, #000 1.8px) -3px -3px / 6px 6px;
   mask: radial-gradient(circle at 3px 3px, transparent 1.6px, #000 1.8px) -3px -3px / 6px 6px;
   background: #fff;
@@ -539,7 +536,6 @@
   box-shadow: 0 14px 30px rgba(20, 12, 4, 0.35), 0 2px 4px rgba(20, 12, 4, 0.2);
 }
 
-/* 信纸：拆信时从信封里升起 */
 .lt-env-paper {
   position: absolute;
   left: 7%;
@@ -566,7 +562,6 @@
   transition: opacity 0.3s ease 0.8s;
 }
 
-/* 信封前面的口袋（左右下三块），挡住信纸的下半截 */
 .lt-env-pocket {
   position: absolute;
   inset: 0;
@@ -579,7 +574,6 @@
   clip-path: polygon(0 0, 50% 58%, 100% 0, 100% 100%, 0 100%);
 }
 
-/* 封口：沿上边翻开 */
 .lt-env-flap {
   position: absolute;
   inset: 0 0 auto;
@@ -631,7 +625,6 @@
   transition: opacity 0.25s ease, transform 0.35s ease;
 }
 
-/* 火漆：在封口尖上，拆信时裂成两半 */
 .lt-env-seal {
   position: absolute;
   left: 50%;
@@ -690,8 +683,6 @@
   transform: rotate(-3deg);
 }
 
-/* ─ 拆信 ─ */
-
 .lt-env.is-open .lt-env-seal-half.is-left {
   transform: translate(-16px, 6px) rotate(-24deg);
   opacity: 0;
@@ -724,8 +715,6 @@
 .lt-env.is-open .lt-env-paper-title {
   opacity: 1;
 }
-
-/* ─ 待拆封：晃一下 ─ */
 
 .lt-env.is-shaking {
   animation: lt-shake 0.46s ease;
@@ -763,8 +752,6 @@
   to { opacity: 1; }
 }
 
-/* 阅读页：信纸 */
-
 .lt-paper {
   width: min(100%, 380px);
   max-height: 100%;
@@ -777,7 +764,6 @@
   box-shadow: 0 10px 30px rgba(30, 26, 20, 0.25);
 }
 
-/* 从信封里抽出来的信纸展开 */
 .lt-paper.is-unfolding {
   transform-origin: center top;
   animation: lt-unfold 0.42s cubic-bezier(0.2, 0.8, 0.25, 1);
