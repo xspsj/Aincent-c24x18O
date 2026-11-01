@@ -23,7 +23,7 @@ import {
 } from "@/lib/letter-storage";
 import type { Letter, LetterTimerSettings } from "@/lib/letter-types";
 
-import { LetterDrawer, formatUnlockTime } from "./letter-drawer";
+import { LetterDrawer, formatUnlockTime, hashText } from "./letter-drawer";
 import { LetterEnvelopeStage } from "./letter-envelope-stage";
 import { LetterMailSettings } from "./letter-mail-settings";
 
@@ -68,6 +68,7 @@ function usePrefersReducedMotion(): boolean {
 export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [letterCharacterIds, setLetterCharacterIds] = useState<string[]>([]);
+  // activeCharacterId 为 null 时，表示停留在「第一层：角色信盒列表」（同日记第一层书架）
   const [activeCharacterId, setActiveCharacterId] = useState<string | null>(null);
   const [letters, setLetters] = useState<Letter[]>([]);
   const [pulled, setPulled] = useState<Pulled | null>(null);
@@ -77,7 +78,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [mailConfigured, setMailConfigured] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [timerSettings, setTimerSettings] = useState<LetterTimerSettings>(() => loadLetterTimerSettings());
-  // 每 30 秒刷新一次「现在」，定时信到点后自动变成可拆
   const [now, setNow] = useState(() => Date.now());
   const reducedMotion = usePrefersReducedMotion();
 
@@ -93,8 +93,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   useEffect(() => {
     const loaded = loadCharacters();
     setCharacters(loaded);
-    const withLetters = listLetterCharacterIds();
-    setActiveCharacterId(withLetters[0] ?? loaded[0]?.id ?? null);
   }, []);
 
   useEffect(() => {
@@ -114,22 +112,15 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     return () => window.clearInterval(timer);
   }, []);
 
-  // 顶部角色：有信的角色在前，其余角色在后（没信也能切过去看空抽屉）
-  const tabs = useMemo(() => {
-    const byId = new Map(characters.map(character => [character.id, character]));
-    const first = letterCharacterIds
-      .map(id => byId.get(id) ?? { id, name: loadLetters(id)[0]?.characterName ?? "角色", avatar: null } as Character);
-    const rest = characters.filter(character => !letterCharacterIds.includes(character.id));
-    return [...first, ...rest];
-  }, [characters, letterCharacterIds]);
+  const activeCharacter = useMemo(
+    () => (activeCharacterId ? characters.find(c => c.id === activeCharacterId) ?? null : null),
+    [characters, activeCharacterId],
+  );
 
-  const activeCharacter = tabs.find(item => item.id === activeCharacterId) ?? null;
   const pulledLetter = pulled ? letters.find(letter => letter.id === pulled.letterId) ?? null : null;
   const readingLetter = readingId ? letters.find(letter => letter.id === readingId) ?? null : null;
-  // 抽出来、正在读的信，抽屉里都留着空位
   const hiddenLetterId = pulled?.letterId ?? readingId;
 
-  // 抽出来的那封信不在了（被别处删掉/切了角色），收起舞台，免得卡住后续操作
   useEffect(() => {
     if (pulled && !pulledLetter) setPulled(null);
   }, [pulled, pulledLetter]);
@@ -154,12 +145,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     notify("信已删除，相关短期记忆已清除。");
   };
 
-  const switchCharacter = (characterId: string) => {
-    if (pulled) return;
-    setActiveCharacterId(characterId);
-    setReadingId(null);
-  };
-
   const handleManualTrigger = async () => {
     if (!activeCharacter || generating) return;
     setGenerating(true);
@@ -170,7 +155,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         notify(
           result.deliveryMode === "scheduled"
             ? `${activeCharacter.name} 寄来了一封定时信（${formatUnlockTime(result.unlockAt || "")} 启封）。`
-            : `${activeCharacter.name} 的信已落入信箱。`,
+            : `${activeCharacter.name} 的信已落入抽屉。`,
         );
       } else {
         notify(result.reason || `${activeCharacter.name} 觉得此刻时机未到，暂未写信。`);
@@ -183,76 +168,93 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   };
 
   return (
-    <section className="diary-app lt-app">
-      <header className="diary-app-header">
-        <button type="button" className="diary-icon-btn" onClick={onBack} aria-label="返回手记">
+    <section className="diary-app diary-entry-app lt-app">
+      {/* 顶部栏：严格对齐日记组件结构，原生右侧放置设置按钮 */}
+      <header className="diary-app-header diary-entry-header">
+        <button
+          type="button"
+          className="diary-icon-btn"
+          onClick={() => (activeCharacter ? setActiveCharacterId(null) : onBack())}
+          aria-label="返回"
+        >
           <ChevronLeft size={20} />
         </button>
         <div>
-          <h1>信件</h1>
-          <p>{activeCharacter ? `${activeCharacter.name} 寄给你的信` : "角色寄给你的信"}</p>
+          <h1>{activeCharacter ? `${activeCharacter.name} 的信箱` : "信件"}</h1>
+          <p>{activeCharacter ? `共 ${letters.length} 封信件` : "每个角色一个抽屉，点开翻阅"}</p>
         </div>
-        <div
-          className="flex items-center gap-1"
-          style={{
-            position: "absolute",
-            right: 16,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 30,
-            pointerEvents: "auto",
-          }}
-        >
+        <span className="diary-entry-header-actions">
           <button
             type="button"
-            className="diary-icon-btn"
-            disabled={!activeCharacter || generating}
-            onClick={handleManualTrigger}
-            aria-label="让TA写一封信"
-            title="让TA写一封信"
-          >
-            <PenTool size={18} className={generating ? "animate-pulse" : ""} />
-          </button>
-          <button
-            type="button"
-            className="diary-icon-btn"
+            className="note-wall-menu-btn"
             onClick={() => setSettingsOpen(true)}
             aria-label="信件设置"
             title="信件设置"
           >
-            <Settings2 size={19} />
+            <Settings2 size={20} />
           </button>
-        </div>
+        </span>
       </header>
-
-      {tabs.length > 0 ? (
-        <nav className="lt-tabs" aria-label="选择角色">
-          {tabs.map(character => (
-            <button
-              key={character.id}
-              type="button"
-              className={`lt-tab ${character.id === activeCharacterId ? "is-active" : ""}`}
-              aria-pressed={character.id === activeCharacterId}
-              onClick={() => switchCharacter(character.id)}
-            >
-              <span className="lt-tab-avatar">
-                {character.avatar ? <img src={character.avatar} alt="" /> : <Bot size={16} />}
-              </span>
-              <span className="lt-tab-name">{character.name}</span>
-              {letterCharacterIds.includes(character.id) ? <span className="lt-tab-dot" aria-hidden="true" /> : null}
-            </button>
-          ))}
-        </nav>
-      ) : null}
 
       {!mailConfigured ? (
         <button type="button" className="lt-banner" onClick={() => setSettingsOpen(true)}>
-          还没配置 QQ 邮箱，信只会留在手机里。点这里去设置。
+          还没配置 QQ 邮箱，信件仅保存在手机中。点此配置现实邮箱 →
         </button>
       ) : null}
 
-      <main className="lt-drawer-area">
-        {activeCharacter ? (
+      {/* 主视图 */}
+      {!activeCharacter ? (
+        // 第一层：角色抽屉书架（图二同款展示）
+        <main className="diary-entry-main">
+          {characters.length === 0 ? (
+            <div className="diary-entry-empty">
+              <Mail size={34} strokeWidth={1.5} />
+              <h2>暂无角色</h2>
+              <p>请先在手机中创建或导入角色卡。</p>
+            </div>
+          ) : (
+            <div className="diary-shelf">
+              {[0, 1].map(column => (
+                <div className="diary-shelf-column" key={column}>
+                  {characters
+                    .filter((_, index) => index % 2 === column)
+                    .map(char => {
+                      const count = loadLetters(char.id).length;
+                      const hash = hashText(char.id);
+                      return (
+                        <button
+                          key={char.id}
+                          type="button"
+                          className="diary-book lt-box-cover"
+                          data-cover={hash % 6}
+                          onClick={() => setActiveCharacterId(char.id)}
+                        >
+                          <span className="diary-book-spine" aria-hidden="true" />
+                          <span className="diary-book-frame" aria-hidden="true" />
+                          <span className="diary-book-label">
+                            <span className="diary-book-avatar">
+                              {char.avatar ? <img src={char.avatar} alt="" /> : <Bot size={20} />}
+                            </span>
+                            <strong>{char.name}</strong>
+                            <em>的信箱抽屉</em>
+                          </span>
+                          <span className="diary-book-meta">
+                            <span>{count} 封信</span>
+                            {letterCharacterIds.includes(char.id) ? (
+                              <span className="lt-shelf-dot" aria-label="有信件" />
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      ) : (
+        // 第二层：点入具体角色的专属木质抽屉
+        <main className="lt-drawer-area">
           <LetterDrawer
             key={activeCharacter.id}
             letters={letters}
@@ -262,14 +264,24 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
             hiddenLetterId={hiddenLetterId}
             onPull={handlePull}
           />
-        ) : (
-          <div className="lt-drawer-none">
-            <Mail size={30} strokeWidth={1.4} />
-            <p>还没有角色。</p>
-          </div>
-        )}
-      </main>
 
+          {/* 右下角圆形悬浮“让TA写”按钮（与图三一致） */}
+          <button
+            type="button"
+            className="diary-entry-write-btn"
+            disabled={generating}
+            aria-busy={generating}
+            onClick={handleManualTrigger}
+            aria-label="让TA写一封信"
+            title="让TA写一封信"
+          >
+            <PenTool size={20} strokeWidth={1.7} className={generating ? "animate-pulse" : ""} />
+            <span>{generating ? "撰写中…" : "让TA写"}</span>
+          </button>
+        </main>
+      )}
+
+      {/* 拆信与大信封交互舞台 */}
       {pulled && pulledLetter ? (
         <LetterEnvelopeStage
           key={pulledLetter.id}
@@ -284,6 +296,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
+      {/* 信件阅读大纸页 */}
       {readingLetter ? (
         <LetterReader
           letter={readingLetter}
@@ -294,6 +307,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
+      {/* 偏好与节奏设置抽屉 */}
       {settingsOpen ? (
         <LettersSettingsSheet
           characters={characters}
@@ -304,6 +318,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
+      {/* 确认删除对话框 */}
       {deleteCandidate ? (
         <ConfirmDialog
           title="删除这封信？"
@@ -380,7 +395,7 @@ function LettersSettingsSheet({ characters, timerSettings, onNotice, onSaveTimer
   const [characterIds, setCharacterIds] = useState<string[]>(timerSettings.characterIds);
 
   const toggleCharacter = (id: string) => {
-    setCharacterIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+    setCharacterIds(prev => (prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]));
   };
 
   const handleSaveTimer = () => {
