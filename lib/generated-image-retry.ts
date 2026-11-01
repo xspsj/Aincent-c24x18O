@@ -1,6 +1,7 @@
 import { saveChatImageToIndexedDB } from "./chat-asset-storage";
 import { syncChatGeneratedImagePromptText, updateChatMessage, type ChatMessage } from "./chat-storage";
 import { generatedImageFilename, generateImageFromConfiguredApi } from "./image-generation-service";
+import { referenceFlagsToPhotoType } from "./rich-message-parser";
 import { updateMomentPost } from "./moments-storage";
 import type { MomentPost } from "./moments-types";
 
@@ -58,7 +59,12 @@ export async function generateAndApplyChatGeneratedImage(
         (options?.useReferenceImage !== undefined && options.useReferenceImage !== (message.mediaData?.useReferenceImage === true)) ||
         (options?.useUserReferenceImage !== undefined && options.useUserReferenceImage !== (message.mediaData?.useUserReferenceImage === true))
     ) {
-        syncChatGeneratedImagePromptText(message.id, previousDescription, description, options?.useReferenceImage);
+        syncChatGeneratedImagePromptText(
+            message.id,
+            previousDescription,
+            description,
+            referenceFlagsToPhotoType(effectiveUseReference, effectiveUseUserReference),
+        );
     }
 
     // 重试路径：先落库为 pending 并广播，气泡立刻切到"生成中"态（首次生图本来就是 pending，无需重写）。

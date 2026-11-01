@@ -17,6 +17,7 @@ import { formatCharacterRelationsForPrompt } from "./character-world-storage";
 import { buildCharacterTimeContext, buildGroupTimeContext, type CharacterTimeContext } from "./character-time";
 import { formatShoppingPaymentRequestHistory } from "./shopping-payment-request";
 import { buildGroupAdminBracketText } from "./group-admin";
+import { resolvePhotoType } from "./rich-message-parser";
 
 export type LLMMessageRole = "system" | "user" | "assistant" | "tool";
 export type LLMToolCallPayload = { id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string };
@@ -171,8 +172,8 @@ function isImageGenerationMediaMessage(msg: ChatMessage): boolean {
 
 function formatPhotoDirective(msg: ChatMessage, prefix = ""): string {
     const description = msg.mediaData?.label?.trim() || "图片";
-    const mode = msg.mediaData?.useReferenceImage === true ? "使用参考图" : "不使用参考图";
-    return `${prefix}[照片:${mode}:${description}]`;
+    const photoType = resolvePhotoType(msg.mediaData);
+    return `${prefix}[照片:${photoType}:${description}]`;
 }
 
 function formatImageGenerationDirective(msg: ChatMessage, prefix = ""): string {
