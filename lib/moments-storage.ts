@@ -354,6 +354,8 @@ export type MomentsInteractionConfig = {
     bilingualTranslationPrompt: string;
     // 禁止自动发帖的角色（只关调度发帖；评论/点赞/手动立即发帖不受影响）
     autoPostDisabledCharacterIds: string[];
+    // 朋友圈照片总是自动生图：开启时不看「生图设置」里的调用生图模式；关闭时跟随主设置
+    alwaysAutoGenerateImage: boolean;
 };
 
 export const DEFAULT_MOMENTS_CONFIG: MomentsInteractionConfig = {
@@ -369,6 +371,7 @@ export const DEFAULT_MOMENTS_CONFIG: MomentsInteractionConfig = {
     collapseBilingualTranslation: true,
     bilingualTranslationPrompt: DEFAULT_MOMENTS_BILINGUAL_PROMPT,
     autoPostDisabledCharacterIds: [],
+    alwaysAutoGenerateImage: false,
 };
 
 export function loadMomentsConfig(): MomentsInteractionConfig {
@@ -385,6 +388,15 @@ export function loadMomentsConfig(): MomentsInteractionConfig {
 export function saveMomentsConfig(config: MomentsInteractionConfig): void {
     if (typeof window === "undefined") return;
     kvSet(MOMENTS_CONFIG_KEY, JSON.stringify(config));
+}
+
+/**
+ * 朋友圈照片是否走手动生图：朋友圈开关「总是自动生图」打开时一律自动；
+ * 关闭时跟随「生图设置」里的调用生图模式（传入主设置是否为手动）。
+ */
+export function isMomentsManualImageGeneration(mainSettingIsManual: boolean): boolean {
+    if (loadMomentsConfig().alwaysAutoGenerateImage) return false;
+    return mainSettingIsManual;
 }
 
 // ── Moments Notification (unread comments/replies) ──────────

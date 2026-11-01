@@ -11,6 +11,7 @@ import {
     getVisibleComments,
     getVisiblePosts,
     loadMomentsConfig,
+    isMomentsManualImageGeneration,
 } from "./moments-storage";
 import { loadChatContacts, loadChatSessions, loadChatMessages, createOrGetSession, addChatContact } from "./chat-storage";
 import { parseAndSaveResponse } from "./follow-up-service";
@@ -312,7 +313,8 @@ async function dispatchMomentsPost(action: ActionTag, context: ActionContext): P
 
     // 先入库再生图：帖子立即可见，生图慢/超时/页面被杀都不会丢帖
     // 手动生图：不标 pending、不调 API，卡片只显示照片描述，用户点开后再生成
-    const manualPhoto = Boolean(parsed.photoDescription) && isManualImageGeneration();
+    // （朋友圈开关「总是自动生图」打开时不看主设置，一律自动）
+    const manualPhoto = Boolean(parsed.photoDescription) && isMomentsManualImageGeneration(isManualImageGeneration());
     const post = addMomentPost({
         authorType: "character",
         authorId: context.characterId,
