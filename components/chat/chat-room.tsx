@@ -5,7 +5,7 @@ import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL
 import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXmlTagBlocks } from "@/lib/stream-preview";
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
-import { parseAIResponse, type ParsedMessagePart } from "@/lib/rich-message-parser";
+import { parseAIResponse, photoTypeToReferenceFlags, type ParsedMessagePart } from "@/lib/rich-message-parser";
 import { isKnownStickerLabel } from "@/lib/sticker-data";
 import { translateReasoningText } from "@/lib/reasoning-translate";
 import { MessageBubble, MediaDetailModal, prewarmStickerCache, BilingualTextBlock, isStandaloneHtmlPreviewContent, normalizeTextBubbleContent } from "./message-bubble";
@@ -6739,7 +6739,18 @@ function formatCallDurationDisplay(durationStr: string): string {
             )}
             {richModal === "text_photo" && (
                 <TextPhotoModal
-                    onSend={(text) => { setRichModal(null); sendRichMessage("image", { label: text }); }}
+                    characterId={session.isGroup ? undefined : session.contactId}
+                    groupMembers={session.isGroup ? groupCharacters.map(item => ({ id: item.id, name: item.name })) : undefined}
+                    onSend={(text, options) => {
+                        setRichModal(null);
+                        sendRichMessage("image", {
+                            label: text,
+                            photoType: options.photoType,
+                            ...photoTypeToReferenceFlags(options.photoType),
+                            // 群聊里出镜的角色存在 recipientId（与礼物/转账的收款人同一字段）
+                            ...(options.characterId ? { recipientId: options.characterId } : {}),
+                        });
+                    }}
                     onClose={() => setRichModal(null)}
                 />
             )}

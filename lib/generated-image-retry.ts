@@ -63,8 +63,8 @@ export async function generateAndApplyChatGeneratedImage(
         useUserReferenceImage: effectiveUseUserReference,
     };
 
-    // 群聊里 char 指发这条消息的角色
-    const effectiveCharacterId = message.senderCharacterId || characterId;
+    // 群聊里 char 指发这条消息的角色；你在群聊发的照片用弹窗里选的成员（存在 recipientId）
+    const effectiveCharacterId = message.senderCharacterId || message.mediaData?.recipientId || characterId;
 
     if ((previousDescription && previousDescription !== description) || photoType !== previousType) {
         syncChatGeneratedImagePromptText(message.id, previousDescription, description, photoType);

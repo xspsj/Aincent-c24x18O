@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { CallSttWarningDialog, hideCallSttWarningPermanently, isCallSttWarningHidden } from "./call-stt-warning-dialog";
 import { isAndroidBrowser } from "./voice-input-platform";
+import { hasCharacterReferenceImage, hasUserReferenceImage } from "@/lib/image-generation-service";
+import { referenceFlagsToPhotoType, type PhotoType } from "@/lib/rich-message-parser";
 
 // ── Photo Input Modal ─────────────────────────────
 
@@ -233,13 +235,46 @@ export function LocationInputModal({ onSend, onClose }: LocationInputModalProps)
 
 // ── Text Photo Modal ─────────────────────────────
 
+type TextPhotoSendOptions = {
+    photoType: PhotoType;
+    /** 群聊里勾「角色出镜」时选中的成员 */
+    characterId?: string;
+};
+
 interface TextPhotoModalProps {
-    onSend: (text: string) => void;
+    onSend: (text: string, options: TextPhotoSendOptions) => void;
     onClose: () => void;
+    /** 私聊的角色 ID（群聊不传） */
+    characterId?: string;
+    /** 群聊成员（传了就显示成员选择） */
+    groupMembers?: Array<{ id: string; name: string }>;
 }
 
-export function TextPhotoModal({ onSend, onClose }: TextPhotoModalProps) {
+export function TextPhotoModal({ onSend, onClose, characterId, groupMembers }: TextPhotoModalProps) {
     const [text, setText] = useState("");
+    const [withChar, setWithChar] = useState(false);
+    const [withUser, setWithUser] = useState(false);
+    const isGroup = Boolean(groupMembers);
+    const [memberId, setMemberId] = useState(() => groupMembers?.[0]?.id || "");
+
+    const targetCharId = isGroup ? memberId : characterId;
+    const charHasRef = hasCharacterReferenceImage(targetCharId);
+    const userHasRef = hasUserReferenceImage();
+    const photoType = referenceFlagsToPhotoType(withChar, withUser);
+    const canSend = Boolean(text.trim()) && (!withChar || !isGroup || Boolean(memberId));
+
+    const typeHint = photoType === "people" ? "双人照：两张参考图都会传给模型"
+        : photoType === "char" ? "角色单人照：传角色参考图"
+            : photoType === "user" ? "我的单人照：传我的参考图"
+                : "纯场景：不传参考图";
+
+    const submit = () => {
+        if (!canSend) return;
+        onSend(text.trim(), {
+            photoType,
+            characterId: withChar && isGroup ? memberId : undefined,
+        });
+    };
 
     return (
         <div className="modal-overlay" onClick={onClose}>
@@ -258,11 +293,40 @@ export function TextPhotoModal({ onSend, onClose }: TextPhotoModalProps) {
                     rows={3}
                     style={{ resize: "none" }}
                 />
+                <div className="w-full flex flex-col gap-2">
+                    <label className="flex items-center gap-2 ts-13 text-[var(--c-text)] cursor-pointer">
+                        <input type="checkbox" checked={withChar} onChange={e => setWithChar(e.target.checked)} />
+                        <span>角色出镜（使用角色参考图）</span>
+                    </label>
+                    {withChar && isGroup && (
+                        <select
+                            value={memberId}
+                            onChange={e => setMemberId(e.target.value)}
+                            className="ui-input w-full"
+                            aria-label="选择出镜的角色"
+                        >
+                            {groupMembers!.map(member => (
+                                <option key={member.id} value={member.id}>{member.name}</option>
+                            ))}
+                        </select>
+                    )}
+                    {withChar && !charHasRef && (
+                        <span className="ts-12 text-[var(--c-icon)]">这个角色还没上传参考图，会按无参考图生成</span>
+                    )}
+                    <label className="flex items-center gap-2 ts-13 text-[var(--c-text)] cursor-pointer">
+                        <input type="checkbox" checked={withUser} onChange={e => setWithUser(e.target.checked)} />
+                        <span>我出镜（使用我的参考图）</span>
+                    </label>
+                    {withUser && !userHasRef && (
+                        <span className="ts-12 text-[var(--c-icon)]">你还没上传参考图，会按无参考图生成</span>
+                    )}
+                    <span className="ts-12 text-[var(--c-icon)]">{typeHint}</span>
+                </div>
                 <div className="flex gap-3 w-full">
                     <button onClick={onClose} className="ui-btn ui-btn-ghost ui-btn-bordered-ghost flex-1">取消</button>
                     <button
-                        onClick={() => { if (text.trim()) onSend(text.trim()); }}
-                        disabled={!text.trim()}
+                        onClick={submit}
+                        disabled={!canSend}
                         className="ui-btn ui-btn-success flex-1"
                     >发送</button>
                 </div>
