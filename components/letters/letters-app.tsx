@@ -192,7 +192,17 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
           <h1>信件</h1>
           <p>{activeCharacter ? `${activeCharacter.name} 寄给你的信` : "角色寄给你的信"}</p>
         </div>
-        <div className="flex items-center gap-1 lt-header-action">
+        <div
+          className="flex items-center gap-1"
+          style={{
+            position: "absolute",
+            right: 16,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 30,
+            pointerEvents: "auto",
+          }}
+        >
           <button
             type="button"
             className="diary-icon-btn"
