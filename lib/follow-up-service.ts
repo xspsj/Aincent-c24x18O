@@ -1028,7 +1028,6 @@ export async function parseAndSaveResponse(
     }
 
     const savedMessages: ChatMessage[] = [];
-    const imageReplacementTasks: Promise<unknown>[] = [];
     let metaIdx = filteredParts.findIndex(canCarryFollowUpPanel);
     if (metaIdx === -1 && (statusPanel || innerMonologue || reasoningText || stateValues.length > 0)) {
         filteredParts.push({ content: "" });
@@ -1087,22 +1086,18 @@ export async function parseAndSaveResponse(
             ...(followUpIndex ? { followUpIndex } : {}),
         });
         if (isPendingChatGeneratedImageMessage(saved)) {
-            imageReplacementTasks.push(
-                generateAndApplyChatGeneratedImage(saved, sess?.contactId)
-                    .catch(error => {
-                        console.warn("[FollowUp] Image generation failed:", error);
-                        return null;
-                    }),
-            );
+            // 生图独立于本轮回复：只发起不等待，本轮立即结束，图片生成好后自动替换
+            void generateAndApplyChatGeneratedImage(saved, sess?.contactId)
+                .catch(error => {
+                    console.warn("[FollowUp] Image generation failed:", error);
+                    return null;
+                });
         }
         savedMessages.push(saved);
     }
     if (markerPartIdx >= filteredParts.length) saveShortcutMarkerPair();
 
     await dispatchBackgroundMessagesOneByOne(sessionId, savedMessages, options?.silent === true);
-    if (imageReplacementTasks.length > 0) {
-        await Promise.allSettled(imageReplacementTasks);
-    }
 
     // 与聊天室前台切后台时同节奏的双通道提醒：横幅 + 系统弹窗成对、
     // 按 800ms 逐条发（与气泡逐条弹出同拍；Worker 定时器保证后台锁屏也按节奏到达）

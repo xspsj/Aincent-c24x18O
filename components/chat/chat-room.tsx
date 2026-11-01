@@ -70,6 +70,7 @@ import type { RegexConfig } from "@/lib/settings-types";
 import { MacroEngine } from "@/lib/macro-engine";
 import {
     createPendingChatGeneratedImageData,
+    failOrphanedPendingChatImages,
     generateAndApplyChatGeneratedImage,
     isPendingChatGeneratedImageMessage,
 } from "@/lib/generated-image-retry";
@@ -1782,6 +1783,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         setOfflineTurns(loadChatOfflineTurns(session.id));
 
         // Prewarm sticker cache for all relevant characters, then load messages
+        // 先把请求已丢失（页面刷新/关闭）却还标着「生成中」的照片落为失败，避免一直卡在「图片接收中」
+        failOrphanedPendingChatImages(session.id);
         const allMsgs = loadChatMessages(session.id);
         const msgs = allMsgs.length > INITIAL_LOAD ? allMsgs.slice(-INITIAL_LOAD) : allMsgs;
         const nextHasMore = allMsgs.length > INITIAL_LOAD;
@@ -2909,21 +2912,24 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const scheduleGeneratedImageReplacement = (
         message: ChatMessage,
         characterId?: string,
-        guard?: GenerationRunGuard,
+        _guard?: GenerationRunGuard,
     ): Promise<ChatMessage | null> => {
         const imgSettings = loadImageGenerationSettings();
         if (imgSettings.triggerMode === "manual" || !isPendingChatGeneratedImageMessage(message)) {
             return Promise.resolve(null);
         }
-        return generateAndApplyChatGeneratedImage(message, characterId || session.contactId, { signal: guard?.signal })
+        // 生图独立于本轮回复：不跟本轮的中止信号走（新一轮回复、退出聊天室都不会把它取消），
+        // 调用方也不再等待，本轮回复发完消息就结束，图片生成好后由 chat-messages-updated 事件替换上去。
+        void generateAndApplyChatGeneratedImage(message, characterId || session.contactId)
             .catch(error => {
                 if (!isAbortLikeError(error)) {
                     console.warn("[ImageGeneration] Failed to generate chat image:", error);
                     const reason = error instanceof Error ? error.message : String(error);
-                    setImageGenerationFailure(prev => prev ?? reason);
+                    if (mountedRef.current) setImageGenerationFailure(prev => prev ?? reason);
                 }
                 return null;
             });
+        return Promise.resolve(null);
     };
 
     // ── Music Card Click-to-Play ──
