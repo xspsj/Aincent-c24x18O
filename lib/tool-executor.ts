@@ -23,7 +23,8 @@ import {
 } from "./tool-storage";
 import { executeCustomAppToolCall } from "./custom-app-tool-runtime";
 import { characterWorkspace, agentComputerRequest, isAgentComputerConfigured } from "./agent-computer";
-import { AGENT_COMPUTER_CAPABILITY_ID, CALENDAR_MANAGEMENT_CAPABILITY_ID, LOCAL_DATA_LIBRARY_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID, MUSIC_CONTROL_CAPABILITY_ID, NOTE_WALL_CAPABILITY_ID, REALITY_BRIDGE_CAPABILITY_ID, SEND_FILE_CAPABILITY_ID, TIMED_WAKE_CAPABILITY_ID, TOOLBOX_MANAGEMENT_CAPABILITY_ID, getInternalCapability } from "./internal-capability-storage";
+import { AGENT_COMPUTER_CAPABILITY_ID, CALENDAR_MANAGEMENT_CAPABILITY_ID, LETTER_SEND_CAPABILITY_ID, LOCAL_DATA_LIBRARY_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID, MUSIC_CONTROL_CAPABILITY_ID, NOTE_WALL_CAPABILITY_ID, REALITY_BRIDGE_CAPABILITY_ID, SEND_FILE_CAPABILITY_ID, TIMED_WAKE_CAPABILITY_ID, TOOLBOX_MANAGEMENT_CAPABILITY_ID, getInternalCapability } from "./internal-capability-storage";
+import { createLetter, isLetterMailConfigured } from "./letter-storage";
 import { bridgeConnection, loadBridgeDataItems, loadBridgeShortcutActions, readAllBridgeStateSnapshots, readBridgeStateSnapshot } from "./reality-bridge/storage";
 import { createShortcutCommand, deliverShortcutCommand, waitForShortcutCommand } from "./shortcut-command-client";
 import { loadMemoryEntriesByType, saveMemoryEntry } from "./memory-storage";
@@ -792,6 +793,7 @@ async function executeInternalTool(call: ToolCall, context?: ToolExecutionContex
     if (call.name === "角色电脑") return executeAgentComputerTool(call, context);
     if (isRealityBridgeToolName(call.name)) return executeRealityBridgeTool(call, context);
     if (call.name === "稍后主动联系" || call.name === "设置定时醒来") return executeTimedWakeTool(call, context);
+    if (call.name === "寄送信件" || call.name === "写信" || call.name === "发送信件") return executeSendLetterTool(call, context);
 
     if (call.name !== "写入记忆") return null;
 
@@ -2970,6 +2972,120 @@ async function executeMemoryWriteTool(
         continueConversation: false,
         persistToHistory: false,
     };
+}
+
+async function executeSendLetterTool(call: ToolCall, context?: ToolExecutionContext): Promise<ToolResult> {
+    const capability = getInternalCapability(LETTER_SEND_CAPABILITY_ID);
+    if (!capability || !capability.enabled || capability.mode === "off") {
+        return {
+            name: "寄送信件",
+            success: false,
+            error: "寄送信件能力未启用",
+            userNotice: "信件能力未启用",
+        };
+    }
+
+    if (!context?.characterId) {
+        return {
+            name: "寄送信件",
+            success: false,
+            error: "当前场景暂不支持写信",
+            userNotice: "当前场景暂不支持写信",
+        };
+    }
+
+    const title = cleanToolString(call.args.title ?? call.args.heading, 80) || "见字如面";
+    const body = cleanToolMultiline(call.args.body ?? call.args.content ?? call.args.text, 8000);
+    if (!body) {
+        return {
+            name: "寄送信件",
+            success: false,
+            error: "缺少信纸正文（body）",
+            userNotice: "信件正文为空，未寄出",
+        };
+    }
+
+    const character = getCurrentCharacter(context.characterId);
+    const signature = cleanToolString(call.args.signature, 80) || character.name;
+    const deliveryModeRaw = cleanToolString(call.args.deliveryMode ?? call.args.delivery_mode, 32);
+    const isScheduled = deliveryModeRaw === "scheduled" || Boolean(call.args.unlockAfter || call.args.unlock_after);
+
+    let unlockAt: string | undefined;
+    if (isScheduled) {
+        unlockAt = parseFlexibleUnlockTime(call.args.unlockAfter ?? call.args.unlock_after);
+    }
+
+    const userName = resolveUserIdentity(character.id, context.appId)?.name || "用户";
+    const letter = createLetter(
+        {
+            characterId: character.id,
+            characterName: character.name,
+            title,
+            body,
+            signature,
+            deliveryMode: isScheduled ? "scheduled" : "immediate",
+            unlockAt,
+            trigger: "self",
+        },
+        {
+            mailConfigured: isLetterMailConfigured(),
+            userName,
+        },
+    );
+
+    const unlockTimeText = isScheduled && unlockAt ? formatLetterUnlockText(unlockAt) : "立即启封";
+
+    return {
+        name: "寄送信件",
+        success: true,
+        data: `信件《${title}》已成功放入对方小手机信箱抽屉，并触发 QQ 邮箱投递队列。\n投递模式：${isScheduled ? `定时信（约定在 ${unlockTimeText} 启封）` : "立即送达"}\n落款：${signature}\n请以角色口吻回复对方，温柔告知对方你刚写好了一封信寄过去了，让对方去抽屉或邮箱查收即可。`,
+        userNotice: isScheduled ? `💌 已寄出一封定时信（${unlockTimeText} 启封）` : "💌 已寄出一封书信，送达信箱",
+        continueConversation: true,
+        persistToHistory: false,
+    };
+}
+
+function parseFlexibleUnlockTime(raw: unknown): string {
+    const text = String(raw ?? "").trim();
+    const now = Date.now();
+    if (!text) return new Date(now + 8 * 3600_000).toISOString();
+
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed) && parsed > now) {
+        return new Date(parsed).toISOString();
+    }
+
+    const minuteMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:分钟|分|mins?|minutes?)/i);
+    if (minuteMatch) {
+        const mins = Number(minuteMatch[1]);
+        if (Number.isFinite(mins) && mins > 0) return new Date(now + mins * 60_000).toISOString();
+    }
+
+    const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:小时|个钟|hrs?|hours?)/i);
+    if (hourMatch) {
+        const hrs = Number(hourMatch[1]);
+        if (Number.isFinite(hrs) && hrs > 0) return new Date(now + hrs * 3600_000).toISOString();
+    }
+
+    const dayMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:天|日|days?)/i);
+    if (dayMatch) {
+        const days = Number(dayMatch[1]);
+        if (Number.isFinite(days) && days > 0) return new Date(now + days * 86400_000).toISOString();
+    }
+
+    const yearMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:年|载|years?)/i);
+    if (yearMatch) {
+        const years = Number(yearMatch[1]);
+        if (Number.isFinite(years) && years > 0) return new Date(now + years * 365 * 86400_000).toISOString();
+    }
+
+    return new Date(now + 8 * 3600_000).toISOString();
+}
+
+function formatLetterUnlockText(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 async function executeTimedWakeTool(call: ToolCall, context?: ToolExecutionContext): Promise<ToolResult> {

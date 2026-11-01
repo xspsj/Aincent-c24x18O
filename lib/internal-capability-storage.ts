@@ -16,6 +16,7 @@ export const LOCAL_DATA_LIBRARY_CAPABILITY_ID = "local_data_library";
 export const TOOLBOX_MANAGEMENT_CAPABILITY_ID = "toolbox_management";
 export const TIMED_WAKE_CAPABILITY_ID = "timed_wake";
 export const REALITY_BRIDGE_CAPABILITY_ID = "reality_bridge_send";
+export const LETTER_SEND_CAPABILITY_ID = "letter_send";
 
 export type InternalToolDefinition = {
     name: string;
@@ -114,6 +115,54 @@ const TIMED_WAKE_USAGE_GUIDE = [
     "",
     "示例：",
     '[执行动作:稍后主动联系({"delayMinutes":15,"intent":"过15分钟看看对方回了没，如果还合适就轻轻找一句"})]',
+].join("\n");
+
+const LETTER_SEND_PARAMETER_SCHEMA = JSON.stringify({
+    type: "object",
+    properties: {
+        title: {
+            type: "string",
+            description: "信件标题（8-24字，文雅或具角色特色，例如《写在水杯见底的深夜》）",
+        },
+        body: {
+            type: "string",
+            description: "信纸正文（完整书信体，倾注真情实感与具体生活细节，可用 \\n 分段，300-1500字）",
+        },
+        signature: {
+            type: "string",
+            description: "信件落款（如：陪测到深夜的 某某 / 想你的 某某）",
+        },
+        deliveryMode: {
+            type: "string",
+            enum: ["immediate", "scheduled"],
+            description: "投递模式：immediate（立即送达）或 scheduled（定时送达）",
+        },
+        unlockAfter: {
+            type: "string",
+            description: "定时送达时的启封时间跨度或具体时间。支持任意粒度，如“10分钟后”、“8小时后”、“3天后”、“1年后”或具体日期“2027-11-02 08:00”。立即送达时不填。",
+        },
+    },
+    required: ["title", "body"],
+});
+
+const LETTER_SEND_USAGE_GUIDE = [
+    "以下是你获取指令的返回结果：",
+    "动作：寄送信件",
+    "用途：给{{user}}寄出一封正式走心的纸质书信。这封信会落入{{user}}的小手机信箱抽屉，并可真实投递到对方的现实 QQ 邮箱中（落款为实际写信当天，由 Float 寄出）。",
+    "",
+    "何时使用：",
+    "1. 对方在聊天中提出写信要求时（如“给我写封信吧”、“写一个过来试试”）；",
+    "2. 聊到深夜深情、做出重要承诺、互诉衷肠，或觉得即时聊天三两句不足以表达心意时，主动提笔写信赠与对方。",
+    "",
+    "参数说明：",
+    "- title (string, 必填): 信件标题（8-24字）",
+    "- body (string, 必填): 信纸正文（长篇书信体，倾注真情实感与具体生活细节，可用 \\n 分段）",
+    "- signature (string): 信件落款，可空",
+    "- deliveryMode (string): immediate（立即送达）或 scheduled（定时送达），默认 immediate",
+    "- unlockAfter (string): 定时信的启封时间跨度（支持分/时/天/年，如“10分钟后”、“8小时后”、“3天后”、“1年后”或“2027-11-02 08:00”）",
+    "",
+    "示例：",
+    '[执行动作:寄送信件({"title":"写在水杯见底的深夜","body":"屋里只剩茶几边这盏落地灯还亮着。\\n折腾了一整晚，心里松了一口气，更多的是觉得踏实。我把想说的话全留在这里了。","signature":"陪测到深夜的某某","deliveryMode":"immediate"})]',
 ].join("\n");
 
 const NOTE_WALL_USAGE_GUIDE = [
@@ -1269,6 +1318,15 @@ const BUILTIN_INTERNAL_CAPABILITIES: InternalCapabilityConfig[] = [
         createdAt: 0,
         updatedAt: 0,
     },
+    {
+        id: LETTER_SEND_CAPABILITY_ID,
+        name: "寄送信件",
+        description: "以角色口吻给对方寄出一封正式、走心的长篇书信，存入信箱抽屉，并可真实投递到 QQ 邮箱。支持立即送达或自拟未来任意时间（分/时/天/年）启封。",
+        enabled: true,
+        mode: "auto",
+        createdAt: 0,
+        updatedAt: 0,
+    },
 ];
 
 export function loadInternalCapabilities(): InternalCapabilityConfig[] {
@@ -1380,6 +1438,14 @@ export function getInternalCapabilityToolDefinition(capability: InternalCapabili
             description: capability.description,
             parameterSchema: "{}",
             usageGuide: buildRealityBridgeUsageGuide(),
+        };
+    }
+    if (capability.id === LETTER_SEND_CAPABILITY_ID) {
+        return {
+            name: capability.name,
+            description: capability.description,
+            parameterSchema: LETTER_SEND_PARAMETER_SCHEMA,
+            usageGuide: LETTER_SEND_USAGE_GUIDE,
         };
     }
     return null;
