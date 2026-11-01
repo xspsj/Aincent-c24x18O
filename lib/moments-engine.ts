@@ -53,6 +53,7 @@ import { sendBrowserNotification } from "./browser-notification";
 import { buildTwoLevelMomentThreads } from "./moments-comment-threading";
 import { DEFAULT_MOMENTS_BILINGUAL_PROMPT, resolveBilingualPrompt } from "./bilingual-prompt-defaults";
 import { generateImageFromConfiguredApi } from "./image-generation-service";
+import { photoTypeToReferenceFlags, type PhotoType } from "./rich-message-parser";
 import { isAbortError, throwIfAborted } from "./abort-utils";
 import { getChatImageFromIndexedDB, saveChatImageToIndexedDB } from "./chat-asset-storage";
 import {
@@ -352,7 +353,9 @@ async function triggerAIPost(characterId: string): Promise<void> {
             authorId: characterId,
             content: parsed.content,
             photoDescription: parsed.photoDescription,
+            photoType: parsed.photoType,
             photoUseReferenceImage: parsed.photoUseReferenceImage === true,
+            photoUseUserReferenceImage: parsed.photoUseUserReferenceImage === true,
             photoGenerationStatus: parsed.photoDescription ? "pending" : undefined,
             visibility,
         });
@@ -362,7 +365,7 @@ async function triggerAIPost(characterId: string): Promise<void> {
         }
 
         if (parsed.photoDescription) {
-            attachMomentPhotoInBackground(post.id, parsed.photoDescription, characterId, parsed.photoUseReferenceImage === true);
+            attachMomentPhotoInBackground(post.id, parsed.photoDescription, characterId, parsed.photoType ?? "scene");
         }
 
         // Increment event counter for auto-summarization (native data read at summarization time)
@@ -1149,30 +1152,50 @@ export function parseMomentPostResponse(rawText: string): {
     content: string;
     photoDescription?: string;
     photoUseReferenceImage?: boolean;
+    photoUseUserReferenceImage?: boolean;
+    photoType?: PhotoType;
 } | null {
     const blockMatch = rawText.match(/\[朋友圈\]\s*([\s\S]*?)\s*\[\/朋友圈\]/);
     const text = blockMatch ? blockMatch[1] : rawText;
 
-    const explicitPhotoMatch = text.match(/\[照片[:：]\s*(使用参考图|不使用参考图)\s*[:：]\s*([\s\S]*?)\]/);
-    const legacyPhotoMatch = explicitPhotoMatch ? null : text.match(/\[照片[:：]\s*([\s\S]*?)\]/);
-    const photoDescription = explicitPhotoMatch
-        ? explicitPhotoMatch[2].trim()
-        : legacyPhotoMatch ? legacyPhotoMatch[1].trim() : undefined;
-    const photoUseReferenceImage = explicitPhotoMatch
-        ? explicitPhotoMatch[1] === "使用参考图"
-        : legacyPhotoMatch
-            ? /(?:自拍|对镜拍|selfie)/i.test(photoDescription || "")
-            : false;
+    // 与聊天同一套照片标签：新格式 [照片:类型:描述] > 旧格式 使用/不使用参考图 > 最旧 [照片:描述]；兼容全角方括号
+    const typedPhotoMatch = text.match(/[\[［]照片\s*[:：]\s*(scene|char|user|people)\s*[:：]\s*([\s\S]*?)[\]］]/i);
+    const explicitPhotoMatch = typedPhotoMatch ? null : text.match(/[\[［]照片\s*[:：]\s*(使用参考图|不使用参考图)\s*[:：]\s*([\s\S]*?)[\]］]/);
+    const legacyPhotoMatch = typedPhotoMatch || explicitPhotoMatch ? null : text.match(/[\[［]照片\s*[:：]\s*([\s\S]*?)[\]］]/);
+
+    let photoDescription: string | undefined;
+    let photoType: PhotoType | undefined;
+    if (typedPhotoMatch) {
+        photoDescription = typedPhotoMatch[2].trim();
+        photoType = typedPhotoMatch[1].toLowerCase() as PhotoType;
+    } else if (explicitPhotoMatch) {
+        photoDescription = explicitPhotoMatch[2].trim();
+        photoType = explicitPhotoMatch[1] === "使用参考图" ? "char" : "scene";
+    } else if (legacyPhotoMatch) {
+        photoDescription = legacyPhotoMatch[1].trim();
+        photoType = /(?:自拍|对镜拍|selfie)/i.test(photoDescription) ? "char" : "scene";
+    }
+    if (!photoDescription) {
+        photoDescription = undefined;
+        photoType = undefined;
+    }
+    const flags = photoType ? photoTypeToReferenceFlags(photoType) : undefined;
 
     const content = text
-        .replace(/\[照片[:：]\s*(?:使用参考图|不使用参考图)\s*[:：]\s*[\s\S]*?\]/g, "")
-        .replace(/\[照片[:：]\s*[\s\S]*?\]/g, "")
+        .replace(/[\[［]照片\s*[:：]\s*(?:scene|char|user|people|使用参考图|不使用参考图)\s*[:：]\s*[\s\S]*?[\]］]/gi, "")
+        .replace(/[\[［]照片\s*[:：]\s*[\s\S]*?[\]］]/g, "")
         .replace(/\[朋友圈\]|\[\/朋友圈\]/g, "")
         .trim();
 
     if (!content) return null;
 
-    return { content, photoDescription, photoUseReferenceImage };
+    return {
+        content,
+        photoDescription,
+        photoType,
+        photoUseReferenceImage: flags?.useReferenceImage ?? false,
+        photoUseUserReferenceImage: flags?.useUserReferenceImage ?? false,
+    };
 }
 
 // ── Helpers ──
@@ -1185,7 +1208,7 @@ export function attachMomentPhotoInBackground(
     postId: string,
     description: string,
     characterId: string,
-    useReferenceImage: boolean,
+    photoTypeOrUseReference: PhotoType | boolean,
     signal?: AbortSignal,
 ): void {
     void (async () => {
@@ -1193,7 +1216,7 @@ export function attachMomentPhotoInBackground(
         let errorMessage: string | undefined;
         let aborted = false;
         try {
-            photoUrl = await generateMomentPhotoUrl(description, characterId, useReferenceImage, signal);
+            photoUrl = await generateMomentPhotoUrl(description, characterId, photoTypeOrUseReference, signal);
         } catch (error) {
             aborted = isAbortError(error);
             errorMessage = error instanceof Error ? error.message : String(error);
@@ -1215,18 +1238,28 @@ function dispatchMomentPhotoGenerationFailed(message: string): void {
     window.dispatchEvent(new CustomEvent(MOMENT_PHOTO_GENERATION_FAILED_EVENT, { detail: { message } }));
 }
 
+/** 照片类型或旧的布尔开关 → 生图时传哪张参考图（布尔 true 等同 char，兼容旧调用方） */
+function resolveMomentPhotoFlags(photoTypeOrUseReference: PhotoType | boolean) {
+    const photoType: PhotoType = typeof photoTypeOrUseReference === "boolean"
+        ? (photoTypeOrUseReference ? "char" : "scene")
+        : photoTypeOrUseReference;
+    return photoTypeToReferenceFlags(photoType);
+}
+
 export async function generateMomentPhotoUrl(
     description: string,
     characterId: string,
-    useReferenceImage: boolean,
+    photoTypeOrUseReference: PhotoType | boolean,
     signal?: AbortSignal,
 ): Promise<string | undefined> {
     try {
         throwIfAborted(signal);
+        const flags = resolveMomentPhotoFlags(photoTypeOrUseReference);
         const generated = await generateImageFromConfiguredApi({
             description,
             characterId,
-            useReferenceImage,
+            useReferenceImage: flags.useReferenceImage,
+            useUserReferenceImage: flags.useUserReferenceImage,
             signal,
         });
         throwIfAborted(signal);

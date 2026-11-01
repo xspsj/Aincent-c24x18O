@@ -149,22 +149,41 @@ export async function retryChatGeneratedImage(
     });
 }
 
+/** 读朋友圈帖子的照片类型：优先用 photoType，旧帖按两个旧开关推算 */
+export function resolveMomentPhotoType(post: Pick<MomentPost, "photoType" | "photoUseReferenceImage" | "photoUseUserReferenceImage">): PhotoType {
+    return resolvePhotoType({
+        photoType: post.photoType,
+        useReferenceImage: post.photoUseReferenceImage,
+        useUserReferenceImage: post.photoUseUserReferenceImage,
+    });
+}
+
 export async function retryMomentGeneratedPhoto(
     post: MomentPost,
     nextDescription?: string,
     useReferenceImage?: boolean,
+    photoType?: PhotoType,
 ): Promise<MomentPost> {
     const description = (nextDescription ?? post.photoDescription)?.trim();
     if (!description) throw new Error("缺少图片描述，无法重新生成");
 
-    const effectiveUseReference = useReferenceImage !== undefined
-        ? useReferenceImage
-        : (post.photoUseReferenceImage === true);
+    // 同聊天：显式类型 > 旧的角色勾选 > 帖子已存的类型
+    const previousType = resolveMomentPhotoType(post);
+    const effectiveType: PhotoType = photoType
+        ?? (useReferenceImage !== undefined
+            ? referenceFlagsToPhotoType(useReferenceImage, photoTypeToReferenceFlags(previousType).useUserReferenceImage)
+            : previousType);
+    const flags = photoTypeToReferenceFlags(effectiveType);
+    const typeFields = {
+        photoType: effectiveType,
+        photoUseReferenceImage: flags.useReferenceImage,
+        photoUseUserReferenceImage: flags.useUserReferenceImage,
+    };
 
     // 同聊天：重试先置 pending 并广播，卡片立刻显示"图片生成中…"；成功/失败都会再写状态。
     updateMomentPost(post.id, {
         photoDescription: description,
-        photoUseReferenceImage: effectiveUseReference,
+        ...typeFields,
         photoGenerationStatus: "pending",
         photoGenerationError: undefined,
     });
@@ -174,7 +193,8 @@ export async function retryMomentGeneratedPhoto(
         const generated = await generateImageFromConfiguredApi({
             description,
             characterId: post.authorType === "character" ? post.authorId : undefined,
-            useReferenceImage: effectiveUseReference,
+            useReferenceImage: flags.useReferenceImage,
+            useUserReferenceImage: flags.useUserReferenceImage,
         });
         if (!generated) throw new Error("生图配置未启用或不完整");
 
@@ -182,7 +202,7 @@ export async function retryMomentGeneratedPhoto(
         const updated = updateMomentPost(post.id, {
             photoUrl: `asset://${assetId}`,
             photoDescription: description,
-            photoUseReferenceImage: effectiveUseReference,
+            ...typeFields,
             photoGenerationStatus: "generated",
             photoGenerationPrompt: generated.prompt,
             photoGenerationError: undefined,
@@ -193,7 +213,7 @@ export async function retryMomentGeneratedPhoto(
     } catch (error) {
         updateMomentPost(post.id, {
             photoDescription: description,
-            photoUseReferenceImage: effectiveUseReference,
+            ...typeFields,
             photoGenerationStatus: "failed",
             photoGenerationError: errorToMessage(error),
         });

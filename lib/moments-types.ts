@@ -9,6 +9,8 @@ export type MomentPost = {
     photoUrl?: string;              // user-uploaded base64 image
     photoDescription?: string;      // AI-generated photo description (for placeholder rendering)
     photoUseReferenceImage?: boolean; // AI-generated photo should use character reference image
+    photoUseUserReferenceImage?: boolean; // AI-generated photo should use the user reference image
+    photoType?: "scene" | "char" | "user" | "people"; // [照片:类型:描述]：scene=纯场景 char=发帖角色 user=用户 people=双人
     photoGenerationStatus?: "pending" | "failed" | "generated";
     photoGenerationPrompt?: string;
     photoGenerationError?: string;
