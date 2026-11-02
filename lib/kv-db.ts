@@ -225,6 +225,19 @@ export function kvRemove(key: string): void {
         console.warn("[KvDB] delete failed:", key, err));
 }
 
+// ── Fresh read: bypass this tab's cache and read IndexedDB directly ──
+/** 绕过本标签页的内存缓存，直接读 IndexedDB。不回写缓存：本标签页可能有
+ *  尚未落盘的写入，回写会把它冲掉。只在「多个标签页可能同时改同一个键、
+ *  且重复执行有副作用」时用来做核对（如投递邮件前确认没被别的标签页寄过）。 */
+export async function kvGetFresh(key: string): Promise<string | null> {
+    try {
+        const row = await kvDb.entries.get(key);
+        return row ? row.value : null;
+    } catch {
+        return kvGet(key);
+    }
+}
+
 // ── Iterate keys with a prefix (for dynamic keys) ──
 export function kvKeysWithPrefix(prefix: string): string[] {
     const result: string[] = [];

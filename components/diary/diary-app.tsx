@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpenText, ChevronLeft, StickyNote } from "lucide-react";
+import { BookOpenText, ChevronLeft, Mail, StickyNote } from "lucide-react";
 
+import { LettersApp } from "@/components/letters/letters-app";
 import { DiaryEntriesApp } from "./diary-entries-app";
 import { NoteWallApp } from "./note-wall-app";
 
@@ -11,7 +12,7 @@ type DiaryAppProps = {
   onNotice?: (message: string) => void;
 };
 
-type DiaryView = "home" | "entries" | "notewall";
+type DiaryView = "home" | "entries" | "notewall" | "letters";
 
 const NOTE_WALL_UI_ENABLED = false;
 
@@ -28,6 +29,10 @@ export function DiaryApp({ onClose, onNotice }: DiaryAppProps) {
 
   if (view === "entries") {
     return <DiaryEntriesApp onBack={() => setView("home")} onNotice={onNotice} />;
+  }
+
+  if (view === "letters") {
+    return <LettersApp onBack={() => setView("home")} onNotice={onNotice} />;
   }
 
   return (
@@ -63,6 +68,28 @@ export function DiaryApp({ onClose, onNotice }: DiaryAppProps) {
           <span className="diary-feature-bottom" aria-hidden="true">
             <span className="diary-feature-barcode" />
             <span className="diary-feature-weather">SUNNY 24C / HUM 62%</span>
+          </span>
+        </button>
+
+        <button type="button" className="diary-feature-card" onClick={() => setView("letters")}>
+          <span className="diary-feature-punches diary-feature-punches-left" aria-hidden="true" />
+          <span className="diary-feature-punches diary-feature-punches-right" aria-hidden="true" />
+          <span className="diary-feature-card-head">
+            <span className="diary-feature-label">LETTERS</span>
+            <span className="diary-feature-number">{todayLabel}</span>
+          </span>
+          <span className="diary-feature-main">
+            <span className="diary-feature-icon">
+              <Mail size={20} strokeWidth={1.55} />
+            </span>
+            <span>
+              <strong>信件</strong>
+              <em>角色寄给你的信</em>
+            </span>
+          </span>
+          <span className="diary-feature-bottom" aria-hidden="true">
+            <span className="diary-feature-barcode" />
+            <span className="diary-feature-weather">AIR MAIL / PAR AVION</span>
           </span>
         </button>
 
