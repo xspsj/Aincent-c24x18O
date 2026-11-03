@@ -2,9 +2,8 @@ import { bgSetInterval } from "./bg-timer";
 import { buildLetterMail, sendLetterMail } from "./letter-mail-client";
 import {
   LETTERS_UPDATED_EVENT,
-  LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT,
+  LETTER_MAIL_CONFIG_UPDATED_EVENT,
   isLetterSealed,
-  listConfiguredMailCharacterIds,
   listLetterCharacterIds,
   loadLetterMailConfig,
   loadLetterUserInbox,
@@ -62,12 +61,16 @@ async function withDeliveryLock(task: () => Promise<void>): Promise<void> {
 }
 
 async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "failed" | "skipped"> {
+  // 以 IndexedDB 里的最新状态为准：别的标签页可能刚刚寄过这封信。
+  // 本标签页刚写入的信可能还没落盘，IndexedDB 里找不到时退回内存里的版本。
+  // 两份都要「到期」才寄：任何一边显示已在投递/已寄出，都不重复投递。
   const cached = loadLetters(letter.characterId).find(item => item.id === letter.id);
   const stored = (await loadLettersFresh(letter.characterId)).find(item => item.id === letter.id);
   const now = Date.now();
   if (!cached || !isDue(cached, now)) return "skipped";
   if (stored && !isDue(stored, now)) {
     if (stored.mailStatus === "sent" || stored.mailStatus === "uncertain") {
+      // 别的标签页已经处理过了，把结果同步到本标签页
       updateLetter(letter.characterId, letter.id, {
         mailStatus: stored.mailStatus,
         mailSentAt: stored.mailSentAt,
@@ -80,30 +83,51 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
   }
   const fresh = cached;
 
-  // 严格按角色隔离：只用该角色自己配置的发信凭证
   const config = loadLetterMailConfig(letter.characterId);
   if (!config) return "skipped";
 
-  // 默认发给用户的接收邮箱，并附上用户设置的昵称
-  const userInbox = loadLetterUserInbox();
-  const toAddress = userInbox?.address;
+  // 解析收件人：优先读信件里存的第三方收件人（__to__ 前缀），否则发给用户主邮箱
+  let toAddress: string | undefined;
+  let toDisplayName: string | undefined;
+
+  if (fresh.mailError?.startsWith("__to__:")) {
+    const parts = fresh.mailError.slice(7).split(":");
+    toAddress = parts[0]?.trim() || undefined;
+    toDisplayName = parts[1]?.trim() || undefined;
+  }
+
+  if (!toAddress) {
+    const inbox = loadLetterUserInbox();
+    toAddress = inbox?.address;
+    toDisplayName = inbox?.displayName;
+  }
+
   if (!toAddress) return "skipped";
 
   const startedAt = new Date().toISOString();
+  // 清除 __to__ 标记，换成真实投递状态
   updateLetter(letter.characterId, letter.id, {
     mailStatus: "sending",
     mailLastAttemptAt: startedAt,
     mailAttempts: fresh.mailAttempts + 1,
-    mailError: undefined,
+    mailError: toAddress !== loadLetterUserInbox()?.address
+      ? `寄往：${toDisplayName || toAddress} <${toAddress}>`
+      : undefined,
   });
 
   const mailInput = buildLetterMail(fresh);
   mailInput.toAddress = toAddress;
-  mailInput.toDisplayName = userInbox.displayName;
+  mailInput.toDisplayName = toDisplayName;
 
   const result = await sendLetterMail(config, mailInput);
   if (result.status === "ok") {
-    updateLetter(letter.characterId, letter.id, { mailStatus: "sent", mailSentAt: new Date().toISOString(), mailError: undefined });
+    updateLetter(letter.characterId, letter.id, {
+      mailStatus: "sent",
+      mailSentAt: new Date().toISOString(),
+      mailError: toAddress !== loadLetterUserInbox()?.address
+        ? `已投递至：${toDisplayName || toAddress} <${toAddress}>`
+        : undefined,
+    });
     return "sent";
   }
   updateLetter(letter.characterId, letter.id, { mailStatus: result.status, mailError: result.error });
@@ -113,10 +137,12 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
 export async function runLetterDeliveryCheck(): Promise<void> {
   if (typeof window === "undefined") return;
   if (running) {
+    // 正在投递时又来了新信：本轮结束后再跑一次，不用等下一个 30 秒
     rerunRequested = true;
     return;
   }
-  if (listConfiguredMailCharacterIds().length === 0) return;
+  // 只要有任何角色配好邮箱就继续
+  if (!listLetterCharacterIds().some(id => loadLetterMailConfig(id))) return;
   running = true;
   rerunRequested = false;
   try {
@@ -150,6 +176,7 @@ export async function runLetterDeliveryCheck(): Promise<void> {
   } finally {
     running = false;
   }
+  // 本轮自己写回状态也会触发 rerunRequested；重跑时这些信已不再到期，空转一轮就停
   if (rerunRequested) {
     rerunRequested = false;
     void runLetterDeliveryCheck();
@@ -184,7 +211,7 @@ export function startLetterDeliveryService(): () => void {
   if (!stopInterval) {
     stopInterval = bgSetInterval(() => { void runLetterDeliveryCheck(); }, CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
+    window.addEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
     window.addEventListener(LETTERS_UPDATED_EVENT, handleTrigger);
     void runLetterDeliveryCheck();
   }
@@ -198,6 +225,6 @@ export function stopLetterDeliveryService(): void {
   }
   if (typeof window === "undefined") return;
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-  window.removeEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
+  window.removeEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
   window.removeEventListener(LETTERS_UPDATED_EVENT, handleTrigger);
 }
