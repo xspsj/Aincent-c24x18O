@@ -56,6 +56,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const address = cleanAccountText(body.address, 254).toLowerCase();
   const authCode = cleanAccountText(body.authCode, 64).replace(/\s+/g, "");
+  const toAddress = cleanAccountText(body.toAddress, 254).toLowerCase();
   const fromName = cleanAccountText(body.fromName, 40);
   const subject = cleanAccountText(body.subject, MAX_SUBJECT);
   const text = String(body.text ?? "").replace(/\u0000/g, "");
@@ -63,13 +64,24 @@ export async function POST(request: Request) {
 
   if (!QQ_MAIL_ADDRESS_PATTERN.test(address)) return fail("请填写 QQ 邮箱地址（@qq.com / @foxmail.com / @vip.qq.com）。", 400);
   if (!QQ_MAIL_AUTH_CODE_PATTERN.test(authCode)) return fail("授权码应为 16 位字母，请检查是否复制完整。", 400);
+  if (toAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toAddress)) {
+    return fail("收件人邮箱格式不正确。", 400);
+  }
   if (!text.trim()) return fail("信件正文为空。", 400);
   if (text.length > MAX_TEXT || html.length > MAX_HTML) return fail("信件太长了。", 413);
 
   if (!allowSend(`${account.id}:${address}`)) return fail("发信太频繁，请过几分钟再试。", 429);
 
   try {
-    await sendQqMail({ address, authCode, fromName, subject, text, html: html || undefined });
+    await sendQqMail({
+      address,
+      authCode,
+      toAddress: toAddress || undefined,
+      fromName,
+      subject,
+      text,
+      html: html || undefined,
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const { message, status, maybeSent } = describeQqSmtpError(err);

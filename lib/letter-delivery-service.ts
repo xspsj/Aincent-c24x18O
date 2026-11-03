@@ -2,10 +2,12 @@ import { bgSetInterval } from "./bg-timer";
 import { buildLetterMail, sendLetterMail } from "./letter-mail-client";
 import {
   LETTERS_UPDATED_EVENT,
-  LETTER_MAIL_CONFIG_UPDATED_EVENT,
+  LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT,
   isLetterSealed,
+  listConfiguredMailCharacterIds,
   listLetterCharacterIds,
   loadLetterMailConfig,
+  loadLetterUserInbox,
   loadLetters,
   loadLettersFresh,
   updateLetter,
@@ -82,8 +84,14 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
   }
   const fresh = cached;
 
-  const config = loadLetterMailConfig();
+  // 严格按角色隔离：只用该角色自己配置的发信凭证
+  const config = loadLetterMailConfig(letter.characterId);
   if (!config) return "skipped";
+
+  // 默认发给用户的接收邮箱
+  const userInbox = loadLetterUserInbox();
+  const toAddress = userInbox?.address;
+  if (!toAddress) return "skipped";
 
   const startedAt = new Date().toISOString();
   updateLetter(letter.characterId, letter.id, {
@@ -93,7 +101,10 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
     mailError: undefined,
   });
 
-  const result = await sendLetterMail(config, buildLetterMail(fresh));
+  const mailInput = buildLetterMail(fresh);
+  mailInput.toAddress = toAddress;
+
+  const result = await sendLetterMail(config, mailInput);
   if (result.status === "ok") {
     updateLetter(letter.characterId, letter.id, { mailStatus: "sent", mailSentAt: new Date().toISOString(), mailError: undefined });
     return "sent";
@@ -109,7 +120,8 @@ export async function runLetterDeliveryCheck(): Promise<void> {
     rerunRequested = true;
     return;
   }
-  if (!loadLetterMailConfig()) return;
+  // 只要有任何一个角色配好了邮箱，就允许投递检查
+  if (listConfiguredMailCharacterIds().length === 0) return;
   running = true;
   rerunRequested = false;
   try {
@@ -178,7 +190,7 @@ export function startLetterDeliveryService(): () => void {
   if (!stopInterval) {
     stopInterval = bgSetInterval(() => { void runLetterDeliveryCheck(); }, CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
+    window.addEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
     window.addEventListener(LETTERS_UPDATED_EVENT, handleTrigger);
     void runLetterDeliveryCheck();
   }
@@ -192,6 +204,6 @@ export function stopLetterDeliveryService(): void {
   }
   if (typeof window === "undefined") return;
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-  window.removeEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
+  window.removeEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, handleTrigger);
   window.removeEventListener(LETTERS_UPDATED_EVENT, handleTrigger);
 }
