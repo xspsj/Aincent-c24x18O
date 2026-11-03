@@ -2,7 +2,6 @@ import type { InternalCapabilityConfig } from "./settings-types";
 import { isAgentComputerConfigured, isContainerComputer } from "./agent-computer";
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
 import { loadBridgeDataItems, loadBridgeShortcutActions, parseBridgeActionParameterSchema } from "./reality-bridge/storage";
-import { loadLetterSafeContacts, loadLetterUserInbox } from "./letter-storage";
 
 const INTERNAL_CAPABILITIES_KEY = "ai_phone_internal_capabilities_v1";
 registerKvMigration(INTERNAL_CAPABILITIES_KEY);
@@ -156,37 +155,16 @@ const LETTER_SEND_USAGE_GUIDE = [
     "2. 聊到深夜深情、做出重要承诺、互诉衷肠，或觉得即时聊天三两句不足以表达心意时，主动提笔写信赠与对方。",
     "",
     "参数说明：",
-    "- title (string, 必填): 信件标题（8-24字）",
+    "- title (string, 必填): 信件标题（8-24字），只填标题本身，不要加任何前缀（如[寄往:某某]），收件人信息填在 to 字段里",
     "- body (string, 必填): 信纸正文（长篇书信体，倾注真情实感与具体生活细节，可用 \\n 分段）",
-    "- signature (string): 信件落款，可空",
+    "- signature (string): 落款，可空",
+    "- to (string): 收件人姓名或邮箱。留空默认寄给用户；填写其他人时必须是安全通讯录白名单内的联系人，系统会自动校验，不在名单则拦截。",
     "- deliveryMode (string): immediate（立即送达）或 scheduled（定时送达），默认 immediate",
     "- unlockAfter (string): 定时信的启封时间跨度（支持分/时/天/年，如“10分钟后”、“8小时后”、“3天后”、“1年后”或“2027-11-02 08:00”）",
     "",
     "示例：",
     '[执行动作:寄送信件({"title":"写在水杯见底的深夜","body":"屋里只剩茶几边这盏落地灯还亮着。\\n折腾了一整晚，心里松了一口气，更多的是觉得踏实。我把想说的话全留在这里了。","signature":"陪测到深夜的某某","deliveryMode":"immediate"})]',
 ].join("\n");
-
-function buildLetterSendUsageGuide(): string {
-    // 实时读取安全通讯录，让角色知道可以发信给哪些人
-    let contactsSection = "";
-    try {
-        const inbox = loadLetterUserInbox();
-        const contacts = loadLetterSafeContacts();
-        const lines: string[] = [];
-        if (inbox?.address) {
-            lines.push(`- ${inbox.displayName || "用户（你自己）"} <${inbox.address}>（默认收件人，to 留空即可）`);
-        }
-        for (const c of contacts) {
-            if (c.name && c.address) {
-                lines.push(`- ${c.name}${c.relation ? `（${c.relation}）` : ""} <${c.address}>`);
-            }
-        }
-        if (lines.length > 0) {
-            contactsSection = "\n\n你的安全通讯录（可发信的收件人）：\n" + lines.join("\n");
-        }
-    } catch { /* 读不到时不影响主流程 */ }
-    return LETTER_SEND_USAGE_GUIDE + contactsSection;
-}
 
 const NOTE_WALL_USAGE_GUIDE = [
     "以下是你获取指令的返回结果：",
@@ -1468,7 +1446,7 @@ export function getInternalCapabilityToolDefinition(capability: InternalCapabili
             name: capability.name,
             description: capability.description,
             parameterSchema: LETTER_SEND_PARAMETER_SCHEMA,
-            usageGuide: buildLetterSendUsageGuide(),
+            usageGuide: LETTER_SEND_USAGE_GUIDE,
         };
     }
     return null;
