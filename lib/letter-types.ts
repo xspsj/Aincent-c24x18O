@@ -88,6 +88,8 @@ export type LetterInput = {
 /** 用户配置的接收邮箱（所有角色写给你的信，默认寄到这里）。 */
 export type LetterUserInbox = {
   address: string;
+  /** 收件人昵称，显示在邮件 To: 字段，如「恋恋」。可空，留空则由邮件客户端自动显示。 */
+  displayName?: string;
   updatedAt: string;
 };
 

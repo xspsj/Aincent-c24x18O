@@ -57,6 +57,7 @@ export async function POST(request: Request) {
   const address = cleanAccountText(body.address, 254).toLowerCase();
   const authCode = cleanAccountText(body.authCode, 64).replace(/\s+/g, "");
   const toAddress = cleanAccountText(body.toAddress, 254).toLowerCase();
+  const toDisplayName = cleanAccountText(body.toDisplayName, 60);
   const fromName = cleanAccountText(body.fromName, 40);
   const subject = cleanAccountText(body.subject, MAX_SUBJECT);
   const text = String(body.text ?? "").replace(/\u0000/g, "");
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
       address,
       authCode,
       toAddress: toAddress || undefined,
+      toDisplayName: toDisplayName || undefined,
       fromName,
       subject,
       text,

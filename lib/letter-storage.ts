@@ -7,8 +7,10 @@ import {
   type LetterMailConfig,
   type LetterMailStatus,
   type LetterReply,
+  type LetterSafeContact,
   type LetterTimerSettings,
   type LetterTrigger,
+  type LetterUserInbox,
 } from "./letter-types";
 
 // ── 信件：按角色分开存，一个角色一个键 ──
@@ -24,6 +26,8 @@ registerDynamicPrefix(LETTERS_KEY_PREFIX);
 // 角色发信配置按 characterId 独立存储；授权码只保存在 IndexedDB，不镜像 localStorage，不进备份。
 export const LETTER_CHAR_MAIL_CONFIG_PREFIX = "ai_phone_char_mail_config_v1:";
 export const LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT = "char-mail-config-updated";
+/** 兼容旧代码引用 */
+export const LETTER_MAIL_CONFIG_UPDATED_EVENT = "letter-mail-config-updated";
 // 用户的接收邮箱（全局）
 export const LETTER_USER_INBOX_KEY = "ai_phone_letter_user_inbox_v1";
 export const LETTER_USER_INBOX_UPDATED_EVENT = "letter-user-inbox-updated";
@@ -201,7 +205,6 @@ export function createLetter(input: LetterInput, options: { mailConfigured: bool
     updatedAt: now,
   };
   saveLetters(letter.characterId, [letter, ...loadLetters(letter.characterId)]);
-  // 第 4 步：同时将信件摘要记入该角色的短期记忆事件流
   try {
     recordLetterEvent(letter, options.userName || "用户");
   } catch (err) {
@@ -255,15 +258,23 @@ export function loadLetterUserInbox(): LetterUserInbox | null {
     const parsed = JSON.parse(raw) as Partial<LetterUserInbox>;
     const address = cleanText(parsed.address, 254).toLowerCase();
     if (!address) return null;
-    return { address, updatedAt: validIso(parsed.updatedAt) ?? new Date().toISOString() };
+    return {
+      address,
+      displayName: cleanText(parsed.displayName, 60) || undefined,
+      updatedAt: validIso(parsed.updatedAt) ?? new Date().toISOString(),
+    };
   } catch {
     return null;
   }
 }
 
-export function saveLetterUserInbox(address: string): LetterUserInbox {
+export function saveLetterUserInbox(address: string, displayName?: string): LetterUserInbox {
   const clean = cleanText(address, 254).toLowerCase();
-  const inbox: LetterUserInbox = { address: clean, updatedAt: new Date().toISOString() };
+  const inbox: LetterUserInbox = {
+    address: clean,
+    displayName: displayName ? cleanText(displayName, 60) : undefined,
+    updatedAt: new Date().toISOString(),
+  };
   kvSet(LETTER_USER_INBOX_KEY, JSON.stringify(inbox));
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(LETTER_USER_INBOX_UPDATED_EVENT));
   return inbox;

@@ -25,6 +25,7 @@ type CharMailboxSettingsProps = {
 export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
   // ── 卡片 1：我的接收邮箱 ──
   const [userInbox, setUserInbox] = useState("");
+  const [userDisplayName, setUserDisplayName] = useState("");
   const [userInboxSaved, setUserInboxSaved] = useState(false);
 
   // ── 卡片 2：角色专属发信邮箱 ──
@@ -49,7 +50,10 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
   // 初始化加载
   useEffect(() => {
     const inbox = loadLetterUserInbox();
-    if (inbox) setUserInbox(inbox.address);
+    if (inbox) {
+      setUserInbox(inbox.address);
+      setUserDisplayName(inbox.displayName ?? "");
+    }
 
     const chars = loadCharacters();
     setCharacters(chars);
@@ -83,7 +87,7 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
       onNotice("邮箱格式不正确");
       return;
     }
-    saveLetterUserInbox(clean);
+    saveLetterUserInbox(clean, userDisplayName.trim() || undefined);
     setUserInboxSaved(true);
     setTimeout(() => setUserInboxSaved(false), 2000);
     onNotice("已保存接收邮箱");
@@ -117,7 +121,7 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
     onNotice("已清除该角色的邮箱配置");
   };
 
-  // 测试发信（从角色发信邮箱寄到我的接收邮箱）
+  // 测试发信
   const handleTestSend = async () => {
     const addr = charEmail.trim().toLowerCase();
     const code = charAuthCode.trim();
@@ -141,6 +145,7 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
       const testMail = buildTestLetterMail();
       testMail.fromName = charName;
       testMail.toAddress = target;
+      testMail.toDisplayName = userDisplayName.trim() || undefined;
 
       const res = await sendLetterMail({ address: addr, authCode: code }, testMail);
       if (res.status === "ok") {
@@ -205,7 +210,7 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
             {userInboxSaved && <span className="text-[12px] text-emerald-600 flex items-center gap-1"><Check size={14} />已保存</span>}
           </div>
           <div className="text-[12px] text-black/45 mt-0.5">
-            角色给你写信或发邮件时，系统默认寄送的目标地址。
+            角色给你写信时，系统默认寄送的目标地址。
           </div>
         </div>
 
@@ -217,14 +222,26 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
             placeholder="如 your_email@qq.com"
             className="flex-1 px-3 py-2 bg-black/[0.03] border border-black/10 rounded-xl text-[14px] outline-none focus:border-black/30"
           />
-          <button
-            type="button"
-            onClick={handleSaveInbox}
-            className="px-4 py-2 bg-black text-white rounded-xl text-[13px] font-medium active:scale-95 transition-transform"
-          >
-            保存
-          </button>
         </div>
+
+        <div>
+          <label className="text-[12px] text-black/50 mb-1 block">收件人昵称（可选）</label>
+          <input
+            type="text"
+            value={userDisplayName}
+            onChange={e => setUserDisplayName(e.target.value)}
+            placeholder="如：恋恋、小主人（显示在邮件收件人栏）"
+            className="w-full px-3 py-2 bg-black/[0.03] border border-black/10 rounded-xl text-[14px] outline-none focus:border-black/30"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSaveInbox}
+          className="px-4 py-2 bg-black text-white rounded-xl text-[13px] font-medium active:scale-95 transition-transform"
+        >
+          保存
+        </button>
       </div>
 
       {/* ── 卡片 2：角色专属发信邮箱 ── */}
@@ -364,14 +381,13 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
           </button>
         </div>
 
-        {/* 联系人列表 */}
         <div className="flex flex-col gap-2 pt-1">
           {/* 常驻第一位：我 */}
           <div className="p-3 bg-black/[0.02] border border-black/5 rounded-xl flex items-center justify-between">
             <div className="flex flex-col">
               <div className="text-[13px] font-medium flex items-center gap-1.5">
-                <span>我（用户本人）</span>
-                <span className="text-[10px] bg-black/10 text-black/60 px-1.5 py-0.2 rounded font-normal">默认</span>
+                <span>{userDisplayName || "我（用户本人）"}</span>
+                <span className="text-[10px] bg-black/10 text-black/60 px-1.5 rounded font-normal">默认</span>
               </div>
               <div className="text-[11px] text-black/40 mt-0.5">
                 {userInbox || "尚未配置接收邮箱"}
@@ -379,16 +395,13 @@ export function CharMailboxSettings({ onNotice }: CharMailboxSettingsProps) {
             </div>
           </div>
 
-          {/* 外部添加的联系人 */}
           {contacts.map(c => (
             <div key={c.id} className="p-3 bg-black/[0.02] border border-black/5 rounded-xl flex items-center justify-between">
               <div className="flex flex-col">
                 <div className="text-[13px] font-medium flex items-center gap-1.5">
                   <span>{c.name}</span>
                   {c.relation && (
-                    <span className="text-[11px] text-black/40 font-normal">
-                      · {c.relation}
-                    </span>
+                    <span className="text-[11px] text-black/40 font-normal">· {c.relation}</span>
                   )}
                 </div>
                 <div className="text-[11px] text-black/45 font-mono mt-0.5">{c.address}</div>

@@ -62,16 +62,12 @@ async function withDeliveryLock(task: () => Promise<void>): Promise<void> {
 }
 
 async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "failed" | "skipped"> {
-  // 以 IndexedDB 里的最新状态为准：别的标签页可能刚刚寄过这封信。
-  // 本标签页刚写入的信可能还没落盘，IndexedDB 里找不到时退回内存里的版本。
-  // 两份都要「到期」才寄：任何一边显示已在投递/已寄出，都不重复投递。
   const cached = loadLetters(letter.characterId).find(item => item.id === letter.id);
   const stored = (await loadLettersFresh(letter.characterId)).find(item => item.id === letter.id);
   const now = Date.now();
   if (!cached || !isDue(cached, now)) return "skipped";
   if (stored && !isDue(stored, now)) {
     if (stored.mailStatus === "sent" || stored.mailStatus === "uncertain") {
-      // 别的标签页已经处理过了，把结果同步到本标签页
       updateLetter(letter.characterId, letter.id, {
         mailStatus: stored.mailStatus,
         mailSentAt: stored.mailSentAt,
@@ -88,7 +84,7 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
   const config = loadLetterMailConfig(letter.characterId);
   if (!config) return "skipped";
 
-  // 默认发给用户的接收邮箱
+  // 默认发给用户的接收邮箱，并附上用户设置的昵称
   const userInbox = loadLetterUserInbox();
   const toAddress = userInbox?.address;
   if (!toAddress) return "skipped";
@@ -103,6 +99,7 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
 
   const mailInput = buildLetterMail(fresh);
   mailInput.toAddress = toAddress;
+  mailInput.toDisplayName = userInbox.displayName;
 
   const result = await sendLetterMail(config, mailInput);
   if (result.status === "ok") {
@@ -116,11 +113,9 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
 export async function runLetterDeliveryCheck(): Promise<void> {
   if (typeof window === "undefined") return;
   if (running) {
-    // 正在投递时又来了新信：本轮结束后再跑一次，不用等下一个 30 秒
     rerunRequested = true;
     return;
   }
-  // 只要有任何一个角色配好了邮箱，就允许投递检查
   if (listConfiguredMailCharacterIds().length === 0) return;
   running = true;
   rerunRequested = false;
@@ -155,7 +150,6 @@ export async function runLetterDeliveryCheck(): Promise<void> {
   } finally {
     running = false;
   }
-  // 本轮自己写回状态也会触发 rerunRequested；重跑时这些信已不再到期，空转一轮就停
   if (rerunRequested) {
     rerunRequested = false;
     void runLetterDeliveryCheck();
