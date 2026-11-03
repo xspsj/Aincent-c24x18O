@@ -24,7 +24,7 @@ import {
 import { executeCustomAppToolCall } from "./custom-app-tool-runtime";
 import { characterWorkspace, agentComputerRequest, isAgentComputerConfigured } from "./agent-computer";
 import { AGENT_COMPUTER_CAPABILITY_ID, CALENDAR_MANAGEMENT_CAPABILITY_ID, LETTER_SEND_CAPABILITY_ID, LOCAL_DATA_LIBRARY_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID, MUSIC_CONTROL_CAPABILITY_ID, NOTE_WALL_CAPABILITY_ID, REALITY_BRIDGE_CAPABILITY_ID, SEND_FILE_CAPABILITY_ID, TIMED_WAKE_CAPABILITY_ID, TOOLBOX_MANAGEMENT_CAPABILITY_ID, getInternalCapability } from "./internal-capability-storage";
-import { createLetter, isLetterMailConfigured } from "./letter-storage";
+import { createLetter, isLetterMailConfigured, loadLetterSafeContacts, loadLetterUserInbox, updateLetter } from "./letter-storage";
 import { bridgeConnection, loadBridgeDataItems, loadBridgeShortcutActions, readAllBridgeStateSnapshots, readBridgeStateSnapshot } from "./reality-bridge/storage";
 import { createShortcutCommand, deliverShortcutCommand, waitForShortcutCommand } from "./shortcut-command-client";
 import { loadMemoryEntriesByType, saveMemoryEntry } from "./memory-storage";
@@ -3015,12 +3015,58 @@ async function executeSendLetterTool(call: ToolCall, context?: ToolExecutionCont
         unlockAt = parseFlexibleUnlockTime(call.args.unlockAfter ?? call.args.unlock_after);
     }
 
+    // ── 收件人解析与白名单校验 ──
+    const toRaw = cleanToolString(call.args.to ?? call.args.recipient ?? call.args.toAddress, 254);
+    let resolvedToAddress: string | undefined;
+    let resolvedToName: string | undefined;
+
+    if (toRaw) {
+        // 先从安全通讯录里查
+        const contacts = (() => {
+            try {
+                const inbox = loadLetterUserInbox();
+                // 用户本人的邮箱也允许
+                if (inbox?.address && (toRaw.toLowerCase() === inbox.address || toRaw === "用户" || toRaw === "我")) {
+                    return { found: true as const, address: inbox.address, name: inbox.displayName || "用户" };
+                }
+                const list = loadLetterSafeContacts();
+                const match = list.find(c =>
+                    c.name === toRaw ||
+                    c.address.toLowerCase() === toRaw.toLowerCase() ||
+                    toRaw.toLowerCase().includes(c.name.toLowerCase()),
+                );
+                if (match) return { found: true as const, address: match.address, name: match.name };
+                return { found: false as const };
+            } catch {
+                return { found: false as const };
+            }
+        })();
+
+        if (!contacts.found) {
+            return {
+                name: "寄送信件",
+                success: false,
+                error: `收件人「${toRaw}」不在安全通讯录白名单内，无法发送。请联系用户将该联系人添加到「设置 → 角色邮箱 → 安全通讯录」后再试。`,
+                userNotice: `发信失败：「${toRaw}」不在安全通讯录内`,
+                continueConversation: true,
+                persistToHistory: false,
+            };
+        }
+        resolvedToAddress = contacts.address;
+        resolvedToName = contacts.name;
+    }
+
+    const isToUser = !resolvedToAddress; // 没有指定收件人就是发给用户
+
+    // ── 严格按角色隔离邮箱凭证 ──
+    const charMailConfigured = isLetterMailConfigured(character.id);
+
     const userName = resolveUserIdentity(character.id, context.appId)?.name || "用户";
     const letter = createLetter(
         {
             characterId: character.id,
             characterName: character.name,
-            title,
+            title: isToUser ? title : `[寄往：${resolvedToName}] ${title}`,
             body,
             signature,
             deliveryMode: isScheduled ? "scheduled" : "immediate",
@@ -3028,18 +3074,28 @@ async function executeSendLetterTool(call: ToolCall, context?: ToolExecutionCont
             trigger: "self",
         },
         {
-            mailConfigured: isLetterMailConfigured(),
+            mailConfigured: charMailConfigured,
             userName,
         },
     );
 
+    // 若发给第三方联系人，把收件信息附到 mailError 字段暂存，供投递服务读取收件人
+    if (!isToUser && resolvedToAddress && letter) {
+        try {
+            updateLetter(character.id, letter.id, {
+                mailError: `__to__:${resolvedToAddress}:${resolvedToName ?? ""}`,
+            });
+        } catch { /* 不影响主流程 */ }
+    }
+
     const unlockTimeText = isScheduled && unlockAt ? formatLetterUnlockText(unlockAt) : "立即启封";
+    const recipientText = isToUser ? "对方" : resolvedToName!;
 
     return {
         name: "寄送信件",
         success: true,
-        data: `信件《${title}》已成功放入对方小手机信箱抽屉，并触发 QQ 邮箱投递队列。\n投递模式：${isScheduled ? `定时信（约定在 ${unlockTimeText} 启封）` : "立即送达"}\n落款：${signature}\n请以角色口吻回复对方，温柔告知对方你刚写好了一封信寄过去了，让对方去抽屉或邮箱查收即可。`,
-        userNotice: isScheduled ? `💌 已寄出一封定时信（${unlockTimeText} 启封）` : "💌 已寄出一封书信，送达信箱",
+        data: `信件《${title}》已成功放入信箱抽屉，并触发投递队列。\n收件人：${recipientText}\n投递模式：${isScheduled ? `定时信（约定在 ${unlockTimeText} 启封）` : "立即送达"}\n落款：${signature}\n${isToUser ? `请以角色口吻温柔告知对方你刚写好了一封信，让对方去信箱抽屉或邮箱查收。` : `请以角色口吻告知对方你刚给${recipientText}发了一封信。`}`,
+        userNotice: isScheduled ? `💌 已寄出一封定时信（${unlockTimeText} 启封）` : `💌 已寄出一封书信 → ${recipientText}`,
         continueConversation: true,
         persistToHistory: false,
     };

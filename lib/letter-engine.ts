@@ -239,7 +239,7 @@ export async function generateLetterForCharacter(
       trigger,
     },
     {
-      mailConfigured: isLetterMailConfigured(),
+      mailConfigured: isLetterMailConfigured(resolved.character.id),
       userName: resolved.userName,
     },
   );
