@@ -763,6 +763,23 @@
   animation: lt-fade-in 0.18s ease;
 }
 
+.lt-overlay-center {
+  align-items: center;
+  justify-content: center;
+}
+
+.lt-dialog {
+  background: var(--c-bg, #fff);
+  border-radius: 20px;
+  width: calc(100% - 32px);
+  max-width: 400px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+
 .lt-overlay-bottom {
   align-items: flex-end;
   padding: 0;
@@ -1142,4 +1159,19 @@
   .lt-sheet {
     animation: none;
   }
+}
+
+.lt-settings-nav-hint {
+  padding: 8px 16px 4px;
+  text-align: center;
+}
+
+.lt-settings-nav-hint button {
+  background: none;
+  border: none;
+  color: var(--c-text-muted, #999);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

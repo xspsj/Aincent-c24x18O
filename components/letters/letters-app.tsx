@@ -11,10 +11,12 @@ import { generateLetterForCharacter } from "@/lib/letter-engine";
 import {
   LETTERS_UPDATED_EVENT,
   LETTER_MAIL_CONFIG_UPDATED_EVENT,
+  LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT,
   LETTER_TIMER_SETTINGS_UPDATED_EVENT,
   deleteLetter,
   isLetterMailConfigured,
   isLetterSealed,
+  listConfiguredMailCharacterIds,
   listLetterCharacterIds,
   loadLetterTimerSettings,
   loadLetters,
@@ -86,6 +88,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontPanelOpen, setFontPanelOpen] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(false);
+  // 已配置了发信邮箱的角色 id 集合（用于 ✔ 显示）
+  const [configuredCharIds, setConfiguredCharIds] = useState<Set<string>>(() => new Set());
   const [generating, setGenerating] = useState(false);
   const [timerSettings, setTimerSettings] = useState<LetterTimerSettings>(() => loadLetterTimerSettings());
   const [now, setNow] = useState(() => Date.now());
@@ -187,7 +191,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const refresh = useCallback(() => {
     setLetterCharacterIds(listLetterCharacterIds());
     setLetters(activeCharacterId ? loadLetters(activeCharacterId) : []);
-    setMailConfigured(isLetterMailConfigured());
+    setMailConfigured(isLetterMailConfigured(activeCharacterId ?? ""));
+    setConfiguredCharIds(new Set(listConfiguredMailCharacterIds()));
     setTimerSettings(loadLetterTimerSettings());
   }, [activeCharacterId]);
 
@@ -200,10 +205,12 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     refresh();
     window.addEventListener(LETTERS_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+    window.addEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     return () => {
       window.removeEventListener(LETTERS_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+      window.removeEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     };
   }, [refresh]);
@@ -315,7 +322,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
 
       {!mailConfigured ? (
         <button type="button" className="lt-banner" onClick={() => setSettingsOpen(true)}>
-          还没配置 QQ 邮箱，信件仅保存在手机中。点此配置现实邮箱 →
+          还没配置发信邮箱，信件仅保存在手机中。前往「设置 → 角色邮箱」配置 →
         </button>
       ) : null}
 
@@ -464,6 +471,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
       {settingsOpen ? (
         <LettersSettingsSheet
           characters={characters}
+          configuredCharIds={configuredCharIds}
           timerSettings={timerSettings}
           onNotice={notify}
           onSaveTimer={saveLetterTimerSettings}
@@ -539,12 +547,14 @@ function LetterReader({
 
 function LettersSettingsSheet({
   characters,
+  configuredCharIds,
   timerSettings,
   onNotice,
   onSaveTimer,
   onClose,
 }: {
   characters: Character[];
+  configuredCharIds: Set<string>;
   timerSettings: LetterTimerSettings;
   onNotice: (message: string) => void;
   onSaveTimer: (settings: LetterTimerSettings) => void;
@@ -570,8 +580,8 @@ function LettersSettingsSheet({
   };
 
   return (
-    <div className="lt-overlay lt-overlay-bottom" role="dialog" aria-modal="true" aria-label="信件设置" onClick={onClose}>
-      <section className="lt-sheet" onClick={event => event.stopPropagation()}>
+    <div className="lt-overlay lt-overlay-center" role="dialog" aria-modal="true" aria-label="信件设置" onClick={onClose}>
+      <section className="lt-dialog" onClick={event => event.stopPropagation()}>
         <header className="lt-sheet-head">
           <h2>信件设置</h2>
           <button type="button" className="diary-icon-btn" onClick={onClose} aria-label="关闭">
@@ -579,8 +589,6 @@ function LettersSettingsSheet({
           </button>
         </header>
         <div className="lt-sheet-body">
-          <LetterMailSettings onNotice={onNotice} />
-
           <section className="lt-sheet-section">
             <div className="flex items-center justify-between">
               <div>
@@ -622,6 +630,7 @@ function LettersSettingsSheet({
                   <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                     {characters.map(char => {
                       const selected = characterIds.includes(char.id);
+                      const hasMail = configuredCharIds.has(char.id);
                       return (
                         <button
                           key={char.id}
@@ -633,7 +642,7 @@ function LettersSettingsSheet({
                           }`}
                           onClick={() => toggleCharacter(char.id)}
                         >
-                          {char.name}
+                          {char.name}{hasMail ? " ✔" : ""}
                         </button>
                       );
                     })}
@@ -650,6 +659,12 @@ function LettersSettingsSheet({
               保存节奏设置
             </button>
           </section>
+
+          <p className="lt-settings-nav-hint">
+            <button type="button" onClick={onClose}>
+              前往「设置 → 角色邮箱」配置发信凭证 →
+            </button>
+          </p>
         </div>
       </section>
     </div>
