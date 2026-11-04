@@ -11,10 +11,12 @@ import { generateLetterForCharacter } from "@/lib/letter-engine";
 import {
   LETTERS_UPDATED_EVENT,
   LETTER_MAIL_CONFIG_UPDATED_EVENT,
+  LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT,
   LETTER_TIMER_SETTINGS_UPDATED_EVENT,
   deleteLetter,
   isLetterMailConfigured,
   isLetterSealed,
+  listConfiguredMailCharacterIds,
   listLetterCharacterIds,
   loadLetterTimerSettings,
   loadLetters,
@@ -77,14 +79,15 @@ function usePrefersReducedMotion(): boolean {
 export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [letterCharacterIds, setLetterCharacterIds] = useState<string[]>([]);
+  // activeCharacterId 控制哪个角色的抽屉处于展开状态
   const [activeCharacterId, setActiveCharacterId] = useState<string | null>(null);
-  const [letters, setLetters] = useState<Letter[]>([]);
   const [pulled, setPulled] = useState<Pulled | null>(null);
   const [readingId, setReadingId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<Letter | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontPanelOpen, setFontPanelOpen] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(false);
+  const [configuredCharIds, setConfiguredCharIds] = useState<Set<string>>(() => new Set());
   const [generating, setGenerating] = useState(false);
   const [writeModalOpen, setWriteModalOpen] = useState(false);
   const [timerSettings, setTimerSettings] = useState<LetterTimerSettings>(() => loadLetterTimerSettings());
@@ -142,13 +145,10 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
-
       try {
         const assetId = await saveThemeAssetFromBlob(file, "font");
         const dataUrl = await getThemeAssetDataUrl(assetId);
-        if (!dataUrl) {
-          throw new Error("字体资源未成功存入数据库");
-        }
+        if (!dataUrl) throw new Error("字体资源未成功存入数据库");
         saveDiaryEntryFontAssetId(assetId);
         setDiaryFontAssetId(assetId);
         setDiaryFontDataUrl(dataUrl);
@@ -186,8 +186,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
 
   const refresh = useCallback(() => {
     setLetterCharacterIds(listLetterCharacterIds());
-    setLetters(activeCharacterId ? loadLetters(activeCharacterId) : []);
-    setMailConfigured(isLetterMailConfigured());
+    setMailConfigured(isLetterMailConfigured(activeCharacterId ?? ""));
+    setConfiguredCharIds(new Set(listConfiguredMailCharacterIds()));
     setTimerSettings(loadLetterTimerSettings());
   }, [activeCharacterId]);
 
@@ -200,10 +200,12 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     refresh();
     window.addEventListener(LETTERS_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+    window.addEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     return () => {
       window.removeEventListener(LETTERS_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+      window.removeEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     };
   }, [refresh]);
@@ -213,18 +215,15 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     return () => window.clearInterval(timer);
   }, []);
 
-  const activeCharacter = useMemo(
-    () => (activeCharacterId ? characters.find(c => c.id === activeCharacterId) ?? null : null),
-    [characters, activeCharacterId],
-  );
+  const hiddenLetterId = pulled?.letterId ?? readingId;
 
+  // 跨角色查找信件（手风琴模式下信件分散在各角色中）
   const pulledLetter = pulled
     ? letterCharacterIds.flatMap(id => loadLetters(id)).find(l => l.id === pulled.letterId) ?? null
     : null;
   const readingLetter = readingId
     ? letterCharacterIds.flatMap(id => loadLetters(id)).find(l => l.id === readingId) ?? null
     : null;
-  const hiddenLetterId = pulled?.letterId ?? readingId;
 
   useEffect(() => {
     if (pulled && !pulledLetter) setPulled(null);
@@ -339,6 +338,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
               const hasUnread = charLetters.some(l => !l.openedAt && !isLetterSealed(l, now));
               return (
                 <div key={charId} className={`lt-accordion-item${isOpen ? " is-open" : ""}`}>
+                  {/* 铭牌条（点击展开/收起） */}
                   <button
                     type="button"
                     className="lt-accordion-handle"
@@ -352,6 +352,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
                     {hasUnread && <span className="lt-shelf-dot" aria-label="有未读信件" />}
                     <span className="lt-accordion-handle-bar" aria-hidden="true" />
                   </button>
+
+                  {/* 展开的抽屉内容 */}
                   {isOpen ? (
                     <div className="lt-accordion-drawer">
                       <LetterDrawer
@@ -372,6 +374,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
           </div>
         )}
 
+        {/* 右下角悬浮「让TA写」按钮 */}
         <button
           type="button"
           className="lt-write-fab"
@@ -386,6 +389,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         </button>
       </main>
 
+      {/* 「让TA写」角色选择弹窗 */}
       {writeModalOpen ? (
         <div className="lt-overlay lt-overlay-center" role="dialog" aria-modal="true" aria-label="选择写信角色" onClick={() => setWriteModalOpen(false)}>
           <section className="lt-dialog" onClick={e => e.stopPropagation()}>
@@ -415,71 +419,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         </div>
       ) : null}
 
-      {/* 下面接原有的弹窗/覆盖层，不改功能 */}
-      {false ? (
-        <main className="diary-entry-main">
-          {characters.length === 0 ? (
-            <div className="diary-entry-empty">
-              <Mail size={34} strokeWidth={1.5} />
-              <h2>暂无角色</h2>
-              <p>请先在手机中创建或导入角色卡。</p>
-            </div>
-          ) : (
-            <div className="diary-shelf">
-              {[0, 1].map(column => (
-                <div className="diary-shelf-column" key={column}>
-                  {characters
-                    .filter((_, index) => index % 2 === column)
-                    .map(char => {
-                      const count = loadLetters(char.id).length;
-                      const hash = hashText(char.id);
-                      return (
-                        <button
-                          key={char.id}
-                          type="button"
-                          className="diary-book lt-box-cover"
-                          data-cover={hash % 6}
-                          onClick={() => setActiveCharacterId(char.id)}
-                        >
-                          <span className="diary-book-spine" aria-hidden="true" />
-                          <span className="diary-book-frame" aria-hidden="true" />
-                          <span className="diary-book-label">
-                            <span className="diary-book-avatar">
-                              {char.avatar ? <img src={char.avatar} alt="" /> : <Bot size={20} />}
-                            </span>
-                            <strong>{char.name}</strong>
-                            <em>的信箱抽屉</em>
-                          </span>
-                          <span className="diary-book-meta">
-                            <span>{count} 封信</span>
-                            {letterCharacterIds.includes(char.id) ? (
-                              <span className="lt-shelf-dot" aria-label="有信件" />
-                            ) : null}
-                          </span>
-                        </button>
-                      );
-                    })}
-                </div>
-              ))}
-            </div>
-          )}
-        </main>
-      ) : (
-        <main className="lt-drawer-area">
-          <LetterDrawer
-            key={activeCharacter.id}
-            letters={letters}
-            characterName={activeCharacter.name}
-            avatar={activeCharacter.avatar}
-            now={now}
-            hiddenLetterId={hiddenLetterId}
-            onPull={handlePull}
-            onRequestDelete={letter => setDeleteCandidate(letter)}
-          />
-
-          {/* 右下角悬浮“让TA写”按钮：小巧精致设计（52px） */}
-          <button
-            type="button"
       {pulled && pulledLetter ? (
         <LetterEnvelopeStage
           key={pulledLetter.id}
@@ -494,7 +433,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
-      {/* 信件阅读大纸页：彻底移除左上角的垃圾桶按钮，只保留右上角纯粹关闭，沉浸阅读 */}
       {readingLetter ? (
         <LetterReader
           letter={readingLetter}
@@ -504,7 +442,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         />
       ) : null}
 
-      {/* Aa 字体上传与字号调节弹窗 */}
       {fontPanelOpen ? (
         <div className="nw-modal-backdrop" role="dialog" aria-modal="true" onClick={() => setFontPanelOpen(false)}>
           <section className="diary-font-panel" onClick={event => event.stopPropagation()}>
@@ -517,12 +454,10 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
                 <X size={18} />
               </button>
             </header>
-
             <button type="button" className="diary-font-upload-action" onClick={() => fontFileRef.current?.click()}>
               <span className="diary-font-upload-mark" aria-hidden="true">Aa</span>
               <span>上传字体文件 (.ttf / .woff2)</span>
             </button>
-
             <label className="diary-font-size-control">
               <span>
                 <strong>信纸字号</strong>
@@ -537,7 +472,6 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
                 onChange={event => handleDiaryFontScaleChange(Number(event.target.value))}
               />
             </label>
-
             <button type="button" className="diary-font-reset-btn" onClick={handleDiaryFontReset}>
               恢复默认手写字体
             </button>
@@ -548,6 +482,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
       {settingsOpen ? (
         <LettersSettingsSheet
           characters={characters}
+          configuredCharIds={configuredCharIds}
           timerSettings={timerSettings}
           onNotice={notify}
           onSaveTimer={saveLetterTimerSettings}
@@ -601,8 +536,13 @@ function LetterReader({
 
           <footer className="lt-paper-mail">
             <span className={`lt-mail-state lt-mail-state-${letter.mailStatus}`}>{mailStatusLabel(letter)}</span>
-            {letter.mailError && (letter.mailStatus === "failed" || letter.mailStatus === "uncertain") ? (
+            {letter.mailError && (letter.mailStatus === "failed" || letter.mailStatus === "uncertain") && !letter.mailError.startsWith("__to__:") ? (
               <span className="lt-mail-state-detail">{letter.mailError}</span>
+            ) : null}
+            {letter.mailError?.startsWith("__to__:") && (letter.mailStatus === "sent" || letter.mailStatus === "pending" || letter.mailStatus === "sending") ? (
+              <span className="lt-mail-state-detail">
+                {"寄往 " + (letter.mailError.slice(7).split(":")[1]?.trim() || letter.mailError.slice(7).split(":")[0]?.trim())}
+              </span>
             ) : null}
             {letter.mailStatus === "uncertain" ? (
               <span className="lt-mail-state-actions">
@@ -623,12 +563,14 @@ function LetterReader({
 
 function LettersSettingsSheet({
   characters,
+  configuredCharIds,
   timerSettings,
   onNotice,
   onSaveTimer,
   onClose,
 }: {
   characters: Character[];
+  configuredCharIds: Set<string>;
   timerSettings: LetterTimerSettings;
   onNotice: (message: string) => void;
   onSaveTimer: (settings: LetterTimerSettings) => void;
@@ -654,8 +596,8 @@ function LettersSettingsSheet({
   };
 
   return (
-    <div className="lt-overlay lt-overlay-bottom" role="dialog" aria-modal="true" aria-label="信件设置" onClick={onClose}>
-      <section className="lt-sheet" onClick={event => event.stopPropagation()}>
+    <div className="lt-overlay lt-overlay-center" role="dialog" aria-modal="true" aria-label="信件设置" onClick={onClose}>
+      <section className="lt-dialog" onClick={event => event.stopPropagation()}>
         <header className="lt-sheet-head">
           <h2>信件设置</h2>
           <button type="button" className="diary-icon-btn" onClick={onClose} aria-label="关闭">
@@ -663,8 +605,6 @@ function LettersSettingsSheet({
           </button>
         </header>
         <div className="lt-sheet-body">
-          <LetterMailSettings onNotice={onNotice} />
-
           <section className="lt-sheet-section">
             <div className="flex items-center justify-between">
               <div>
@@ -706,6 +646,7 @@ function LettersSettingsSheet({
                   <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                     {characters.map(char => {
                       const selected = characterIds.includes(char.id);
+                      const hasMail = configuredCharIds.has(char.id);
                       return (
                         <button
                           key={char.id}
@@ -717,7 +658,7 @@ function LettersSettingsSheet({
                           }`}
                           onClick={() => toggleCharacter(char.id)}
                         >
-                          {char.name}
+                          {char.name}{hasMail ? " ✔" : ""}
                         </button>
                       );
                     })}
@@ -734,6 +675,12 @@ function LettersSettingsSheet({
               保存节奏设置
             </button>
           </section>
+
+          <p className="lt-settings-nav-hint">
+            <button type="button" onClick={onClose}>
+              前往「设置 → 角色邮箱」配置发信凭证 →
+            </button>
+          </p>
         </div>
       </section>
     </div>

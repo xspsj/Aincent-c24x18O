@@ -4,20 +4,19 @@
 .lt-accordion-main {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
-  padding: 0 0 80px;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
 }
 
 .lt-accordion-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 .lt-accordion-item {
   display: flex;
   flex-direction: column;
-  transition: none;
 }
 
 /* 铭牌条（抽屉前板） */
@@ -27,21 +26,18 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 64px;
+  min-height: 60px;
   background: linear-gradient(180deg, #c9a87a 0%, #b8956a 50%, #a8845c 100%);
   border: none;
   border-bottom: 2px solid #8a6c48;
   cursor: pointer;
-  padding: 10px 48px 14px;
-  gap: 12px;
+  padding: 8px 48px 12px;
+  gap: 10px;
   flex-shrink: 0;
-  transition: background 0.18s ease;
+  transition: background 0.15s ease;
 }
 
-.lt-accordion-handle:active {
-  background: linear-gradient(180deg, #b89660 0%, #a78358 50%, #97724a 100%);
-}
-
+.lt-accordion-handle:active,
 .lt-accordion-item.is-open .lt-accordion-handle {
   background: linear-gradient(180deg, #b89660 0%, #a78358 50%, #97724a 100%);
   border-bottom-color: #7a5c38;
@@ -61,24 +57,24 @@
 }
 
 .lt-accordion-name {
-  font-size: 15px;
+  font-size: calc(14px*var(--app-text-scale,1));
   color: #5a3e20;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
 
 .lt-accordion-count {
-  font-size: 12px;
+  font-size: calc(12px*var(--app-text-scale,1));
   color: #8a6c48;
 }
 
 /* 拉手横条 */
 .lt-accordion-handle-bar {
   position: absolute;
-  bottom: 5px;
+  bottom: 4px;
   left: 50%;
   transform: translateX(-50%);
-  width: 40px;
-  height: 5px;
+  width: 36px;
+  height: 4px;
   background: #d4a96a;
   border-radius: 3px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
@@ -93,19 +89,19 @@
   flex: 1;
   min-height: 0;
   position: relative;
-  animation: lt-accordion-open 0.22s ease-out;
+  animation: lt-accordion-open 0.2s ease-out;
 }
 
 @keyframes lt-accordion-open {
-  from { opacity: 0; transform: translateY(-8px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* 「让TA写」弹窗里的角色列表 */
+/* 「让TA写」弹窗 */
 .lt-write-modal-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   padding: 8px 16px 16px;
   overflow-y: auto;
   max-height: 60vh;
@@ -121,6 +117,7 @@
   border-radius: 12px;
   cursor: pointer;
   text-align: left;
+  width: 100%;
   transition: background 0.12s ease;
 }
 
@@ -153,7 +150,7 @@
 }
 
 .lt-write-modal-name {
-  font-size: 15px;
+  font-size: calc(15px*var(--app-text-scale,1));
   color: #333;
   font-weight: 500;
 }
