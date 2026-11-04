@@ -41,6 +41,8 @@ export class QqSmtpError extends Error {
 export type QqMailInput = {
   address: string;
   authCode: string;
+  toAddress?: string;
+  toDisplayName?: string;
   fromName: string;
   subject: string;
   text: string;
@@ -74,10 +76,15 @@ function stripLineBreaks(value: string): string {
 
 function buildMessage(input: QqMailInput): string {
   const domain = input.address.split("@")[1] || "qq.com";
-  const fromName = stripLineBreaks(input.fromName) || "小手机信箱";
+  const fromName = stripLineBreaks(input.fromName) || "Float 信箱";
+  const toAddr = input.toAddress?.trim() || input.address;
+  const toName = input.toDisplayName?.trim();
+  const toField = toName
+    ? `${encodeHeaderWord(toName)} <${toAddr}>`
+    : `<${toAddr}>`;
   const headers = [
     `From: ${encodeHeaderWord(fromName)} <${input.address}>`,
-    `To: <${input.address}>`,
+    `To: ${toField}`,
     `Subject: ${encodeHeaderWord(stripLineBreaks(input.subject) || "一封信")}`,
     `Date: ${new Date().toUTCString().replace("GMT", "+0000")}`,
     `Message-ID: <${randomBytes(12).toString("hex")}@${domain}>`,
@@ -224,9 +231,10 @@ export async function sendQqMail(input: QqMailInput): Promise<{ response: string
     write(Buffer.from(input.authCode, "utf8").toString("base64"));
     await expect("auth", [235], "登录失败");
 
+    const rcptTo = input.toAddress?.trim() || input.address;
     write(`MAIL FROM:<${input.address}>`);
     await expect("send", [250], "发件人被拒绝");
-    write(`RCPT TO:<${input.address}>`);
+    write(`RCPT TO:<${rcptTo}>`);
     await expect("send", [250, 251], "收件人被拒绝");
     write("DATA");
     await expect("send", [354], "服务器不接受正文");

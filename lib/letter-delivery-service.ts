@@ -6,6 +6,7 @@ import {
   isLetterSealed,
   listLetterCharacterIds,
   loadLetterMailConfig,
+  loadLetterUserInbox,
   loadLetters,
   loadLettersFresh,
   updateLetter,
@@ -82,20 +83,51 @@ async function deliverOne(letter: Letter): Promise<"sent" | "uncertain" | "faile
   }
   const fresh = cached;
 
-  const config = loadLetterMailConfig();
+  const config = loadLetterMailConfig(letter.characterId);
   if (!config) return "skipped";
 
+  // 解析收件人：优先读信件里存的第三方收件人（__to__ 前缀），否则发给用户主邮箱
+  let toAddress: string | undefined;
+  let toDisplayName: string | undefined;
+
+  if (fresh.mailError?.startsWith("__to__:")) {
+    const parts = fresh.mailError.slice(7).split(":");
+    toAddress = parts[0]?.trim() || undefined;
+    toDisplayName = parts[1]?.trim() || undefined;
+  }
+
+  if (!toAddress) {
+    const inbox = loadLetterUserInbox();
+    toAddress = inbox?.address;
+    toDisplayName = inbox?.displayName;
+  }
+
+  if (!toAddress) return "skipped";
+
   const startedAt = new Date().toISOString();
+  // 清除 __to__ 标记，换成真实投递状态
   updateLetter(letter.characterId, letter.id, {
     mailStatus: "sending",
     mailLastAttemptAt: startedAt,
     mailAttempts: fresh.mailAttempts + 1,
-    mailError: undefined,
+    mailError: toAddress !== loadLetterUserInbox()?.address
+      ? `寄往：${toDisplayName || toAddress} <${toAddress}>`
+      : undefined,
   });
 
-  const result = await sendLetterMail(config, buildLetterMail(fresh));
+  const mailInput = buildLetterMail(fresh);
+  mailInput.toAddress = toAddress;
+  mailInput.toDisplayName = toDisplayName;
+
+  const result = await sendLetterMail(config, mailInput);
   if (result.status === "ok") {
-    updateLetter(letter.characterId, letter.id, { mailStatus: "sent", mailSentAt: new Date().toISOString(), mailError: undefined });
+    updateLetter(letter.characterId, letter.id, {
+      mailStatus: "sent",
+      mailSentAt: new Date().toISOString(),
+      mailError: toAddress !== loadLetterUserInbox()?.address
+        ? `已投递至：${toDisplayName || toAddress} <${toAddress}>`
+        : undefined,
+    });
     return "sent";
   }
   updateLetter(letter.characterId, letter.id, { mailStatus: result.status, mailError: result.error });
@@ -109,7 +141,8 @@ export async function runLetterDeliveryCheck(): Promise<void> {
     rerunRequested = true;
     return;
   }
-  if (!loadLetterMailConfig()) return;
+  // 只要有任何角色配好邮箱就继续
+  if (!listLetterCharacterIds().some(id => loadLetterMailConfig(id))) return;
   running = true;
   rerunRequested = false;
   try {

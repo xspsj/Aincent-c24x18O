@@ -24,7 +24,7 @@ import {
 import { executeCustomAppToolCall } from "./custom-app-tool-runtime";
 import { characterWorkspace, agentComputerRequest, isAgentComputerConfigured } from "./agent-computer";
 import { AGENT_COMPUTER_CAPABILITY_ID, CALENDAR_MANAGEMENT_CAPABILITY_ID, LETTER_SEND_CAPABILITY_ID, LOCAL_DATA_LIBRARY_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID, MUSIC_CONTROL_CAPABILITY_ID, NOTE_WALL_CAPABILITY_ID, REALITY_BRIDGE_CAPABILITY_ID, SEND_FILE_CAPABILITY_ID, TIMED_WAKE_CAPABILITY_ID, TOOLBOX_MANAGEMENT_CAPABILITY_ID, getInternalCapability } from "./internal-capability-storage";
-import { createLetter, isLetterMailConfigured } from "./letter-storage";
+import { createLetter, isLetterMailConfigured, loadLetterSafeContacts, loadLetterUserInbox, updateLetter } from "./letter-storage";
 import { bridgeConnection, loadBridgeDataItems, loadBridgeShortcutActions, readAllBridgeStateSnapshots, readBridgeStateSnapshot } from "./reality-bridge/storage";
 import { createShortcutCommand, deliverShortcutCommand, waitForShortcutCommand } from "./shortcut-command-client";
 import { loadMemoryEntriesByType, saveMemoryEntry } from "./memory-storage";
@@ -2977,32 +2977,16 @@ async function executeMemoryWriteTool(
 async function executeSendLetterTool(call: ToolCall, context?: ToolExecutionContext): Promise<ToolResult> {
     const capability = getInternalCapability(LETTER_SEND_CAPABILITY_ID);
     if (!capability || !capability.enabled || capability.mode === "off") {
-        return {
-            name: "寄送信件",
-            success: false,
-            error: "寄送信件能力未启用",
-            userNotice: "信件能力未启用",
-        };
+        return { name: "寄送信件", success: false, error: "寄送信件能力未启用", userNotice: "信件能力未启用" };
     }
-
     if (!context?.characterId) {
-        return {
-            name: "寄送信件",
-            success: false,
-            error: "当前场景暂不支持写信",
-            userNotice: "当前场景暂不支持写信",
-        };
+        return { name: "寄送信件", success: false, error: "当前场景暂不支持写信", userNotice: "当前场景暂不支持写信" };
     }
 
     const title = cleanToolString(call.args.title ?? call.args.heading, 80) || "见字如面";
     const body = cleanToolMultiline(call.args.body ?? call.args.content ?? call.args.text, 8000);
     if (!body) {
-        return {
-            name: "寄送信件",
-            success: false,
-            error: "缺少信纸正文（body）",
-            userNotice: "信件正文为空，未寄出",
-        };
+        return { name: "寄送信件", success: false, error: "缺少信纸正文（body）", userNotice: "信件正文为空，未寄出" };
     }
 
     const character = getCurrentCharacter(context.characterId);
@@ -3015,12 +2999,51 @@ async function executeSendLetterTool(call: ToolCall, context?: ToolExecutionCont
         unlockAt = parseFlexibleUnlockTime(call.args.unlockAfter ?? call.args.unlock_after);
     }
 
+    // ── 收件人解析与白名单校验 ──
+    const toRaw = cleanToolString(call.args.to ?? call.args.recipient ?? call.args.toAddress, 254);
+    let resolvedToAddress: string | undefined;
+    let resolvedToName: string | undefined;
+
+    if (toRaw) {
+        const inbox = loadLetterUserInbox();
+        if (inbox?.address && (
+            toRaw.toLowerCase() === inbox.address ||
+            toRaw === "用户" || toRaw === "我"
+        )) {
+            resolvedToAddress = inbox.address;
+            resolvedToName = inbox.displayName || "用户";
+        } else {
+            const contacts = loadLetterSafeContacts();
+            const match = contacts.find(c =>
+                c.name === toRaw ||
+                c.address.toLowerCase() === toRaw.toLowerCase() ||
+                toRaw.toLowerCase().includes(c.name.toLowerCase()),
+            );
+            if (match) {
+                resolvedToAddress = match.address;
+                resolvedToName = match.name;
+            } else {
+                return {
+                    name: "寄送信件",
+                    success: false,
+                    error: `收件人「${toRaw}」不在安全通讯录白名单内，无法发送。请让用户在「设置 → 角色邮箱 → 安全通讯录」添加后再试。`,
+                    userNotice: `发信失败：「${toRaw}」不在安全通讯录内`,
+                    continueConversation: true,
+                    persistToHistory: false,
+                };
+            }
+        }
+    }
+
+    const isToUser = !resolvedToAddress;
+    const recipientText = isToUser ? "用户" : resolvedToName!;
+
     const userName = resolveUserIdentity(character.id, context.appId)?.name || "用户";
     const letter = createLetter(
         {
             characterId: character.id,
             characterName: character.name,
-            title,
+            title, // 标题永远干净，不加任何前缀
             body,
             signature,
             deliveryMode: isScheduled ? "scheduled" : "immediate",
@@ -3028,18 +3051,27 @@ async function executeSendLetterTool(call: ToolCall, context?: ToolExecutionCont
             trigger: "self",
         },
         {
-            mailConfigured: isLetterMailConfigured(),
+            mailConfigured: isLetterMailConfigured(character.id),
             userName,
         },
     );
+
+    // 把第三方收件人信息存入 mailError（__to__ 前缀），供投递服务路由
+    if (!isToUser && resolvedToAddress && letter) {
+        try {
+            updateLetter(character.id, letter.id, {
+                mailError: `__to__:${resolvedToAddress}:${resolvedToName ?? ""}`,
+            });
+        } catch { /* 不影响主流程 */ }
+    }
 
     const unlockTimeText = isScheduled && unlockAt ? formatLetterUnlockText(unlockAt) : "立即启封";
 
     return {
         name: "寄送信件",
         success: true,
-        data: `信件《${title}》已成功放入对方小手机信箱抽屉，并触发 QQ 邮箱投递队列。\n投递模式：${isScheduled ? `定时信（约定在 ${unlockTimeText} 启封）` : "立即送达"}\n落款：${signature}\n请以角色口吻回复对方，温柔告知对方你刚写好了一封信寄过去了，让对方去抽屉或邮箱查收即可。`,
-        userNotice: isScheduled ? `💌 已寄出一封定时信（${unlockTimeText} 启封）` : "💌 已寄出一封书信，送达信箱",
+        data: `信件《${title}》已成功放入信箱抽屉，并触发投递队列。\n收件人：${recipientText}\n投递模式：${isScheduled ? `定时信（约定在 ${unlockTimeText} 启封）` : "立即送达"}\n落款：${signature}\n${isToUser ? "请以角色口吻温柔告知对方你刚写好了一封信，让对方去信箱抽屉或邮箱查收。" : `请以角色口吻告知对方你刚给${recipientText}发了一封信。`}`,
+        userNotice: isScheduled ? `💌 已寄出一封定时信（${unlockTimeText} 启封）` : `💌 已寄出一封书信 → ${recipientText}`,
         continueConversation: true,
         persistToHistory: false,
     };

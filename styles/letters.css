@@ -1143,3 +1143,166 @@
     animation: none;
   }
 }
+
+/* ── 手风琴式角色信箱 ── */
+
+.lt-accordion-main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  padding: 14px 12px calc(80px + env(safe-area-inset-bottom, 0px));
+  touch-action: pan-y;
+}
+
+.lt-accordion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 收起：只露出底部铭牌前板（62px） */
+.lt-accordion-item {
+  border-radius: 6px 6px 4px 4px;
+  overflow: hidden;
+  height: 62px;
+  transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(40, 25, 10, 0.22), 0 1px 3px rgba(40, 25, 10, 0.12);
+  /* 允许点击铭牌前板，不干扰内部信件的拖拽 */
+  touch-action: manipulation;
+}
+
+/* 展开：完整高度，恢复 touch-action 让内部信件正常接管 */
+.lt-accordion-item.is-open {
+  height: 74vh;
+  min-height: 420px;
+  touch-action: pan-y;
+}
+
+/* 展开时抽屉撑满容器 */
+.lt-accordion-item .lt-drawer {
+  height: 100%;
+}
+
+/* 信件按钮：long-press 拖拽期间禁止系统滚动接管 */
+.lt-accordion-item.is-open .lt-slot {
+  touch-action: none;
+}
+
+/* 邮票头像溢出修复 */
+.lt-stamp {
+  overflow: hidden;
+}
+
+/* ── 「让TA写」日记款底部弹窗 ── */
+
+.lt-write-sheet-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+}
+
+.lt-write-sheet {
+  width: 100%;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 24px 20px 32px;
+  animation: lt-sheet-up 0.22s ease-out;
+}
+
+@keyframes lt-sheet-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.lt-write-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.lt-write-sheet-title {
+  font-family: var(--diary-entry-font-family);
+  font-size: calc(22px*var(--app-text-scale,1));
+  font-weight: 400;
+  color: #1a1a1c;
+  line-height: 1.3;
+}
+
+.lt-write-sheet-sub {
+  font-size: calc(13px*var(--app-text-scale,1));
+  color: rgba(0,0,0,0.4);
+  margin-top: 4px;
+}
+
+.lt-write-sheet-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 8px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: rgba(0,0,0,0.5);
+}
+
+.lt-write-sheet-chars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 20px;
+  padding-top: 4px;
+}
+
+.lt-write-sheet-char-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 12px;
+  transition: background 0.12s ease;
+  min-width: 60px;
+}
+
+.lt-write-sheet-char-btn:hover,
+.lt-write-sheet-char-btn:active { background: rgba(0,0,0,0.05); }
+
+.lt-write-sheet-char-btn:disabled { opacity: 0.45; pointer-events: none; }
+
+.lt-write-sheet-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(0,0,0,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lt-write-sheet-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lt-write-sheet-char-name {
+  font-family: var(--diary-entry-font-family);
+  font-size: calc(12px*var(--app-text-scale,1));
+  color: #444;
+  text-align: center;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

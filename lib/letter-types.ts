@@ -85,8 +85,26 @@ export type LetterInput = {
   trigger?: LetterTrigger;
 };
 
-/** 用户配置的 QQ 邮箱。只存在本机 IndexedDB，不进备份文件。 */
+/** 用户配置的接收邮箱（所有角色写给你的信，默认寄到这里）。 */
+export type LetterUserInbox = {
+  address: string;
+  /** 收件人昵称，显示在邮件 To: 字段，如「恋恋」。可空，留空则由邮件客户端自动显示。 */
+  displayName?: string;
+  updatedAt: string;
+};
+
+/** 安全通讯录白名单联系人（除用户本人外，允许角色发信的联系人）。 */
+export type LetterSafeContact = {
+  id: string;
+  name: string;
+  address: string;
+  relation?: string;
+  createdAt: string;
+};
+
+/** 角色的发信邮箱配置（按 characterId 独立存储，物理隔离）。只在 IndexedDB 保存，不进备份。 */
 export type LetterMailConfig = {
+  characterId: string;
   address: string;
   authCode: string;
   /** 最近一次「发送测试信」成功的时间，用来显示「已验证」。 */

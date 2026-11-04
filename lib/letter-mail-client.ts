@@ -1,6 +1,8 @@
 import type { Letter, LetterMailConfig } from "./letter-types";
 
 export type LetterMailSendInput = {
+  toAddress?: string;
+  toDisplayName?: string;
   fromName: string;
   subject: string;
   text: string;
@@ -33,6 +35,8 @@ export async function sendLetterMail(
       body: JSON.stringify({
         address: config.address,
         authCode: config.authCode,
+        toAddress: input.toAddress,
+        toDisplayName: input.toDisplayName,
         fromName: input.fromName,
         subject: input.subject,
         text: input.text,

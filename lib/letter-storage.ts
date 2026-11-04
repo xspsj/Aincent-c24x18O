@@ -7,8 +7,10 @@ import {
   type LetterMailConfig,
   type LetterMailStatus,
   type LetterReply,
+  type LetterSafeContact,
   type LetterTimerSettings,
   type LetterTrigger,
+  type LetterUserInbox,
 } from "./letter-types";
 
 // ── 信件：按角色分开存，一个角色一个键 ──
@@ -20,11 +22,20 @@ const MAX_LETTERS_PER_CHARACTER = 300;
 
 registerDynamicPrefix(LETTERS_KEY_PREFIX);
 
-// ── QQ 邮箱配置 ──
-// 故意不调用 registerKvMigration：未登记的键不会镜像到 localStorage，
-// 授权码只留在 IndexedDB。备份同样排除这个键（见 data-management/modules.ts）。
-export const LETTER_MAIL_CONFIG_KEY = "ai_phone_letter_mail_config_v1";
+// ── 角色邮箱与收信配置 ──
+// 角色发信配置按 characterId 独立存储；授权码只保存在 IndexedDB，不镜像 localStorage，不进备份。
+export const LETTER_CHAR_MAIL_CONFIG_PREFIX = "ai_phone_char_mail_config_v1:";
+export const LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT = "char-mail-config-updated";
+/** 兼容旧代码引用 */
 export const LETTER_MAIL_CONFIG_UPDATED_EVENT = "letter-mail-config-updated";
+// 用户的接收邮箱（全局）
+export const LETTER_USER_INBOX_KEY = "ai_phone_letter_user_inbox_v1";
+export const LETTER_USER_INBOX_UPDATED_EVENT = "letter-user-inbox-updated";
+// 安全通讯录白名单
+export const LETTER_SAFE_CONTACTS_KEY = "ai_phone_letter_safe_contacts_v1";
+export const LETTER_SAFE_CONTACTS_UPDATED_EVENT = "letter-safe-contacts-updated";
+
+registerDynamicPrefix(LETTER_CHAR_MAIL_CONFIG_PREFIX);
 
 /** QQ 邮箱（含 foxmail / vip.qq.com）。后端发信接口用同一条规则校验。 */
 export const QQ_MAIL_ADDRESS_PATTERN = /^[a-z0-9._-]{1,64}@(qq\.com|vip\.qq\.com|foxmail\.com)$/i;
@@ -194,7 +205,6 @@ export function createLetter(input: LetterInput, options: { mailConfigured: bool
     updatedAt: now,
   };
   saveLetters(letter.characterId, [letter, ...loadLetters(letter.characterId)]);
-  // 第 4 步：同时将信件摘要记入该角色的短期记忆事件流
   try {
     recordLetterEvent(letter, options.userName || "用户");
   } catch (err) {
@@ -238,18 +248,109 @@ export function deleteLetter(characterId: string, id: string): void {
   }
 }
 
-// ── QQ 邮箱配置读写 ──
+// ── 用户接收邮箱读写 ──
 
-export function loadLetterMailConfig(): LetterMailConfig | null {
+export function loadLetterUserInbox(): LetterUserInbox | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = kvGet(LETTER_MAIL_CONFIG_KEY);
+    const raw = kvGet(LETTER_USER_INBOX_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LetterUserInbox>;
+    const address = cleanText(parsed.address, 254).toLowerCase();
+    if (!address) return null;
+    return {
+      address,
+      displayName: cleanText(parsed.displayName, 60) || undefined,
+      updatedAt: validIso(parsed.updatedAt) ?? new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLetterUserInbox(address: string, displayName?: string): LetterUserInbox {
+  const clean = cleanText(address, 254).toLowerCase();
+  const inbox: LetterUserInbox = {
+    address: clean,
+    displayName: displayName ? cleanText(displayName, 60) : undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  kvSet(LETTER_USER_INBOX_KEY, JSON.stringify(inbox));
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(LETTER_USER_INBOX_UPDATED_EVENT));
+  return inbox;
+}
+
+// ── 安全通讯录白名单 ──
+
+export function loadLetterSafeContacts(): LetterSafeContact[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = kvGet(LETTER_SAFE_CONTACTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): LetterSafeContact | null => {
+        if (!item || typeof item !== "object") return null;
+        const rec = item as Record<string, unknown>;
+        const id = cleanText(rec.id, 64);
+        const name = cleanText(rec.name, 60);
+        const address = cleanText(rec.address, 254).toLowerCase();
+        if (!id || !name || !address) return null;
+        return {
+          id,
+          name,
+          address,
+          relation: cleanText(rec.relation, 120) || undefined,
+          createdAt: validIso(rec.createdAt) ?? new Date().toISOString(),
+        };
+      })
+      .filter((item): item is LetterSafeContact => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLetterSafeContacts(contacts: LetterSafeContact[]): void {
+  if (typeof window === "undefined") return;
+  kvSet(LETTER_SAFE_CONTACTS_KEY, JSON.stringify(contacts));
+  window.dispatchEvent(new CustomEvent(LETTER_SAFE_CONTACTS_UPDATED_EVENT));
+}
+
+export function addLetterSafeContact(input: { name: string; address: string; relation?: string }): LetterSafeContact {
+  const current = loadLetterSafeContacts();
+  const contact: LetterSafeContact = {
+    id: generateId("contact"),
+    name: cleanText(input.name, 60),
+    address: cleanText(input.address, 254).toLowerCase(),
+    relation: cleanText(input.relation, 120) || undefined,
+    createdAt: new Date().toISOString(),
+  };
+  saveLetterSafeContacts([...current, contact]);
+  return contact;
+}
+
+export function deleteLetterSafeContact(id: string): void {
+  saveLetterSafeContacts(loadLetterSafeContacts().filter(c => c.id !== id));
+}
+
+// ── 角色发信邮箱（物理隔离） ──
+
+function charMailKey(characterId: string): string {
+  return `${LETTER_CHAR_MAIL_CONFIG_PREFIX}${characterId}`;
+}
+
+export function loadLetterMailConfig(characterId: string): LetterMailConfig | null {
+  if (typeof window === "undefined" || !characterId) return null;
+  try {
+    const raw = kvGet(charMailKey(characterId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<LetterMailConfig>;
     const address = cleanText(parsed.address, 254).toLowerCase();
     const authCode = cleanText(parsed.authCode, 64);
     if (!address || !authCode) return null;
     return {
+      characterId,
       address,
       authCode,
       verifiedAt: validIso(parsed.verifiedAt),
@@ -260,25 +361,40 @@ export function loadLetterMailConfig(): LetterMailConfig | null {
   }
 }
 
-export function isLetterMailConfigured(): boolean {
-  return Boolean(loadLetterMailConfig());
+export function isLetterMailConfigured(characterId: string): boolean {
+  return Boolean(loadLetterMailConfig(characterId));
 }
 
-export function saveLetterMailConfig(input: { address: string; authCode: string; verifiedAt?: string }): LetterMailConfig {
+export function listConfiguredMailCharacterIds(): string[] {
+  return kvKeysWithPrefix(LETTER_CHAR_MAIL_CONFIG_PREFIX)
+    .map(key => key.slice(LETTER_CHAR_MAIL_CONFIG_PREFIX.length))
+    .filter(id => Boolean(loadLetterMailConfig(id)));
+}
+
+export function saveLetterMailConfig(
+  characterId: string,
+  input: { address: string; authCode: string; verifiedAt?: string }
+): LetterMailConfig {
   const config: LetterMailConfig = {
+    characterId,
     address: cleanText(input.address, 254).toLowerCase(),
     authCode: cleanText(input.authCode, 64).replace(/\s+/g, ""),
     verifiedAt: input.verifiedAt,
     updatedAt: new Date().toISOString(),
   };
-  kvSet(LETTER_MAIL_CONFIG_KEY, JSON.stringify(config));
-  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(LETTER_MAIL_CONFIG_UPDATED_EVENT));
+  kvSet(charMailKey(characterId), JSON.stringify(config));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, { detail: { characterId } }));
+  }
   return config;
 }
 
-export function clearLetterMailConfig(): void {
-  kvRemove(LETTER_MAIL_CONFIG_KEY);
-  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(LETTER_MAIL_CONFIG_UPDATED_EVENT));
+export function clearLetterMailConfig(characterId: string): void {
+  if (!characterId) return;
+  kvRemove(charMailKey(characterId));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, { detail: { characterId } }));
+  }
 }
 
 // ── 写信节奏定时配置 ──

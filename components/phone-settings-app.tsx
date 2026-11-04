@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, createContext, type CSSProperties, type ReactNode } from "react";
-import { Activity, Check, ChevronRight, Clock, Database, FileText, Fingerprint, Globe, HardDrive, Image, Info, KeyRound, Laptop, Layers, Link2, Loader2, LogOut, MessageSquare, Mic, SlidersHorizontal, UserCircle, Wrench, X, CloudUpload } from "lucide-react";
+import { Activity, Check, ChevronRight, Clock, Database, FileText, Fingerprint, Globe, HardDrive, Image, Info, KeyRound, Laptop, Layers, Link2, Loader2, LogOut, Mail, MessageSquare, Mic, SlidersHorizontal, UserCircle, Wrench, X, CloudUpload } from "lucide-react";
 import { ConfirmDialog } from "./ui/modal";
 import { useAccount } from "@/lib/account-context";
 import { isSelfHostedModeEnabled } from "@/lib/self-hosting";
@@ -21,6 +21,7 @@ import { CloudServicesPage } from "./settings/cloud-services-setup";
 import { ToolboxSettings } from "./settings/toolbox-settings";
 import { ModerationCenter } from "./settings/moderation-center";
 import { AgentComputerSettings } from "./settings/agent-computer-settings";
+import { CharMailboxSettings } from "./settings/char-mailbox-settings";
 import { fetchIsAdmin } from "@/lib/moderation-client";
 import { PageShell } from "./ui/page-shell";
 import { CardGrid, FeaturedCard, type CardItem, type FeaturedCardItem } from "./ui/card-grid";
@@ -55,6 +56,7 @@ type SubPage =
     | "cloud"
     | "weixin"
     | "toolbox"
+    | "charMailbox"
     | "agentComputer"
     | "moderation"
     | "about";
@@ -71,6 +73,7 @@ const SETTINGS_MENU = [
     { id: "cloud", icon: CloudUpload, label: "云服务部署", desc: "备份 / 微信 / 推送一站配置", iconColor: BINDING_ACCENTS.api , glass: "" },
     { id: "weixin", icon: MessageSquare, label: "微信接入", desc: "iLink Bot", iconColor: CONTENT_APP_ACCENTS.chat , glass: "weixin" },
     { id: "toolbox", icon: Wrench, label: "聊天工具箱", desc: "外部工具调用", iconColor: BINDING_ACCENTS.voice , glass: "toolbox" },
+    { id: "charMailbox", icon: Mail, label: "角色邮箱", desc: "独立邮局 / 收信与联系人", iconColor: CONTENT_APP_ACCENTS.chat, glass: "" },
     { id: "agentComputer", icon: Laptop, label: "角色电脑", desc: "云端小电脑（自部署）", iconColor: BINDING_ACCENTS.memory , glass: "agent-computer" },
     { id: "identity", icon: UserCircle, label: "用户身份", desc: "个人信息", iconColor: BINDING_ACCENTS.identity , glass: "identity" },
     { id: "about", icon: Info, label: "关于与声明", desc: "版本与协议", iconColor: BINDING_ACCENTS.memory , glass: "about" },
@@ -115,10 +118,8 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
     const [floatingDockEnabled, setFloatingDockEnabled] = useState(false);
     const [floatingDockSheetOpen, setFloatingDockSheetOpen] = useState(false);
     const [keepAlive, setKeepAlive] = useState(false);
-    // 角色电脑：施工中弹窗（返回 / 仍要看看）
     const pageBodyRef = useRef<HTMLDivElement | null>(null);
 
-    // ── 账号：显示当前登录 / 修改密码 / 退出登录 ──
     const selfHostedMode = isSelfHostedModeEnabled();
     const { account, logout } = useAccount();
     const [pwdModalOpen, setPwdModalOpen] = useState(false);
@@ -130,7 +131,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
     const [confirmLogout, setConfirmLogout] = useState(false);
     const [accountSheetOpen, setAccountSheetOpen] = useState(false);
 
-    // ── 管理中心入口：仅 role=admin 的账号可见 ──
     const [isAdmin, setIsAdmin] = useState(false);
     useEffect(() => {
         if (selfHostedMode || !account) return;
@@ -216,7 +216,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         iconColor: item.iconColor,
         glassIcon: item.glass,
         onClick: () => {
-            // 施工中：角色电脑先弹提示，可选择仍要看看
             setCurrentPage(item.id as SubPage);
         },
     });
@@ -248,7 +247,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
     const handleKeepAliveChange = useCallback((next: boolean) => {
         setKeepAlive(next);
         saveKeepAlive(next);
-        // use-weixin-bridge 监听这个事件来起停保活（与微信 Bot 的启用状态无关）
         window.dispatchEvent(new CustomEvent("weixin-config-changed"));
         onNotice(next ? "已开启后台保活" : "已关闭后台保活");
     }, [onNotice]);
@@ -272,6 +270,16 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         desc: cloudItem.desc,
         iconColor: cloudItem.iconColor,
         onClick: () => setCurrentPage("cloud"),
+    };
+
+    const charMailboxItem = SETTINGS_MENU.find(i => i.id === "charMailbox")!;
+    const charMailboxFeaturedItem: FeaturedCardItem = {
+        id: charMailboxItem.id,
+        icon: charMailboxItem.icon,
+        label: charMailboxItem.label,
+        desc: charMailboxItem.desc,
+        iconColor: charMailboxItem.iconColor,
+        onClick: () => setCurrentPage("charMailbox"),
     };
 
     const agentComputerItem = SETTINGS_MENU.find(i => i.id === "agentComputer")!;
@@ -320,6 +328,8 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
                 return <WeixinSettings onOpenCloudServices={() => setCurrentPage("cloud")} />;
             case "toolbox":
                 return <ToolboxSettings />;
+            case "charMailbox":
+                return <CharMailboxSettings onNotice={onNotice} />;
             case "agentComputer":
                 return <AgentComputerSettings onNotice={onNotice} />;
             case "moderation":
@@ -337,7 +347,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         pageBodyRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
     }, [currentPage]);
 
-    // Check for pending mascot navigation mode on mount (stored by desktop-shell)
     useEffect(() => {
         const pending = sessionStorage.getItem("mascot-settings-mode");
         if (pending) {
@@ -357,7 +366,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         setKeepAlive(loadKeepAlive());
     }, []);
 
-    // Listen for mascot navigation mode (e.g. jump to worldbook/regex tab)
     useEffect(() => {
         const onMode = (e: Event) => {
             const { mode } = (e as CustomEvent).detail ?? {};
@@ -369,7 +377,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
         return () => window.removeEventListener("mascot-navigate-mode", onMode);
     }, []);
 
-    // Listen for internal settings tab navigation (e.g. mascot "修改绑定" button)
     useEffect(() => {
         const onNav = (e: Event) => {
             const { page } = (e as CustomEvent).detail ?? {};
@@ -423,6 +430,9 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
                                 <CardGrid
                                     items={SETTINGS_MENU.filter(item => ["weixin", "toolbox"].includes(item.id)).map(makeCardItem)}
                                 />
+                            </div>
+                            <div className="mt-[10px]">
+                                <FeaturedCard item={charMailboxFeaturedItem} />
                             </div>
                             <div className="mt-[10px]">
                                 <FeaturedCard item={agentComputerFeaturedItem} />
@@ -631,9 +641,6 @@ export function PhoneSettingsApp({ onClose, onNotice }: SettingsPageProps) {
                 )}
 
                 {currentPage !== "main" && (
-                    // shrink-0：page-body 是 flex 容器，包裹层默认可压缩——内容超一屏时会被压到
-                    // 恰好一屏高、卡片从中溢出，底部 padding 落不到内容末尾，最后一张卡贴死滚动边界
-                    //（iOS 底部工具栏/安全区一盖就"没放下又滚不动"）。尾部留白 = 原 pb-8 + 安全区。
                     <div className="block min-h-full shrink-0 p-4 box-border" style={{ paddingBottom: "calc(32px + env(safe-area-inset-bottom, 0px))" }}>
                         {renderSubPage()}
                     </div>
