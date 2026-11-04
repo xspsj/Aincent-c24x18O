@@ -675,6 +675,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     // 表情包搜索联想：ESC/失焦置 true 隐藏，输入变化重新开启
     const [suggestClosed, setSuggestClosed] = useState(false);
+    // 工具箱横向分页：记录当前激活页码，用于圆点指示器联动
+    const [currentPlusPage, setCurrentPlusPage] = useState(0);
     // 围观群/被禁言：输入与富媒体入口全部锁定，只留线下切换和生成按钮
     const [muteNowTick, setMuteNowTick] = useState(() => Date.now());
     useEffect(() => {
@@ -894,7 +896,14 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
             {showPlusMenu && (
                 plusMenuLayoutStyle === "paged" ? (
                     <div className="chat-plus-menu-container">
-                        <div className="chat-plus-menu-paged-viewport">
+                        <div
+                            className="chat-plus-menu-paged-viewport"
+                            onScroll={e => {
+                                const el = e.currentTarget;
+                                const page = Math.round(el.scrollLeft / Math.max(el.clientWidth, 1));
+                                setCurrentPlusPage(page);
+                            }}
+                        >
                             {Array.from({ length: Math.ceil(plusMenuItems.length / 12) }).map((_, pageIdx) => (
                                 <div key={pageIdx} className="chat-plus-menu-page">
                                     {plusMenuItems.slice(pageIdx * 12, (pageIdx + 1) * 12).map((item, i) => (
@@ -911,7 +920,14 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                         {Math.ceil(plusMenuItems.length / 12) > 1 && (
                             <div className="chat-plus-menu-dots">
                                 {Array.from({ length: Math.ceil(plusMenuItems.length / 12) }).map((_, dotIdx) => (
-                                    <span key={dotIdx} className={`chat-plus-menu-dot ${dotIdx === 0 ? "active" : ""}`} />
+                                    <span
+                                            key={dotIdx}
+                                            className={`chat-plus-menu-dot ${dotIdx === currentPlusPage ? "active" : ""}`}
+                                            onClick={() => {
+                                                const el = document.querySelector(".chat-plus-menu-paged-viewport") as HTMLElement | null;
+                                                if (el) el.scrollTo({ left: dotIdx * el.clientWidth, behavior: "smooth" });
+                                            }}
+                                        />
                                 ))}
                             </div>
                         )}
@@ -6549,7 +6565,7 @@ function formatCallDurationDisplay(durationStr: string): string {
                     </button>
                 </div>
             )}
-            {!isMultiSelectMode && (offlineMode ? (
+            {!isMultiSelectMode && !isFavoriteSelectMode && (offlineMode ? (
                 <OfflineTextInputBar
                     key={session.id}
                     ref={offlineTextInputRef}
@@ -6586,7 +6602,7 @@ function formatCallDurationDisplay(durationStr: string): string {
                 onClosePanels={() => { setShowEmojiPanel(false); setShowStickerPanel(false); setShowPlusMenu(false); }}
 	                onToggleEmojiPanel={() => { setShowEmojiPanel(!showEmojiPanel); setShowStickerPanel(false); setShowPlusMenu(false); }}
 	                onToggleStickerPanel={() => { setShowStickerPanel(!showStickerPanel); setShowEmojiPanel(false); setShowPlusMenu(false); }}
-	                onTogglePlusMenu={() => { setShowPlusMenu(!showPlusMenu); setShowEmojiPanel(false); setShowStickerPanel(false); }}
+	                onTogglePlusMenu={() => { setShowPlusMenu(prev => { if (prev) setCurrentPlusPage(0); return !prev; }); setShowEmojiPanel(false); setShowStickerPanel(false); }}
 	                onToggleTheaterMode={toggleTheaterMode}
 	                onCloseTheaterMode={closeTheaterMode}
 	                onOpenRichModal={(modal) => { setShowPlusMenu(false); setRichModal(modal); }}
