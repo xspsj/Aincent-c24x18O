@@ -11,10 +11,12 @@ import { generateLetterForCharacter } from "@/lib/letter-engine";
 import {
   LETTERS_UPDATED_EVENT,
   LETTER_MAIL_CONFIG_UPDATED_EVENT,
+  LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT,
   LETTER_TIMER_SETTINGS_UPDATED_EVENT,
   deleteLetter,
   isLetterMailConfigured,
   isLetterSealed,
+  listConfiguredMailCharacterIds,
   listLetterCharacterIds,
   loadLetterTimerSettings,
   loadLetters,
@@ -32,7 +34,6 @@ import { getThemeAssetDataUrl, saveThemeAssetFromBlob } from "@/lib/theme-storag
 
 import { LetterDrawer, formatUnlockTime, hashText } from "./letter-drawer";
 import { LetterEnvelopeStage } from "./letter-envelope-stage";
-import { LetterMailSettings } from "./letter-mail-settings";
 
 const DIARY_USER_FONT_FAMILY = "AIPhoneDiaryEntryUserFont";
 const DIARY_USER_FONT_STYLE_ID = "ai-phone-diary-entry-user-font-face";
@@ -86,6 +87,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontPanelOpen, setFontPanelOpen] = useState(false);
   const [mailConfigured, setMailConfigured] = useState(false);
+  const [configuredCharIds, setConfiguredCharIds] = useState<Set<string>>(() => new Set());
   const [generating, setGenerating] = useState(false);
   const [timerSettings, setTimerSettings] = useState<LetterTimerSettings>(() => loadLetterTimerSettings());
   const [now, setNow] = useState(() => Date.now());
@@ -187,7 +189,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
   const refresh = useCallback(() => {
     setLetterCharacterIds(listLetterCharacterIds());
     setLetters(activeCharacterId ? loadLetters(activeCharacterId) : []);
-    setMailConfigured(isLetterMailConfigured());
+    setMailConfigured(isLetterMailConfigured(activeCharacterId ?? ""));
+    setConfiguredCharIds(new Set(listConfiguredMailCharacterIds()));
     setTimerSettings(loadLetterTimerSettings());
   }, [activeCharacterId]);
 
@@ -200,10 +203,12 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     refresh();
     window.addEventListener(LETTERS_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+    window.addEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, refresh);
     window.addEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     return () => {
       window.removeEventListener(LETTERS_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_MAIL_CONFIG_UPDATED_EVENT, refresh);
+      window.removeEventListener(LETTER_CHAR_MAIL_CONFIG_UPDATED_EVENT, refresh);
       window.removeEventListener(LETTER_TIMER_SETTINGS_UPDATED_EVENT, refresh);
     };
   }, [refresh]);
@@ -464,6 +469,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
       {settingsOpen ? (
         <LettersSettingsSheet
           characters={characters}
+          configuredCharIds={configuredCharIds}
           timerSettings={timerSettings}
           onNotice={notify}
           onSaveTimer={saveLetterTimerSettings}
@@ -520,9 +526,9 @@ function LetterReader({
             {letter.mailError && (letter.mailStatus === "failed" || letter.mailStatus === "uncertain") && !letter.mailError.startsWith("__to__:") ? (
               <span className="lt-mail-state-detail">{letter.mailError}</span>
             ) : null}
-            {letter.mailError && (letter.mailStatus === "sent" || letter.mailStatus === "uncertain") && (letter.mailError.startsWith("__to__:") || letter.mailError.startsWith("已投递至：") || letter.mailError.startsWith("寄往：")) ? (
+            {letter.mailError?.startsWith("__to__:") && (letter.mailStatus === "sent" || letter.mailStatus === "pending" || letter.mailStatus === "sending") ? (
               <span className="lt-mail-state-detail">
-                {letter.mailError.startsWith("__to__:") ? `寄往 ${letter.mailError.slice(7).split(":")[1] || letter.mailError.slice(7).split(":")[0]}` : letter.mailError}
+                {"寄往 " + (letter.mailError.slice(7).split(":")[1]?.trim() || letter.mailError.slice(7).split(":")[0]?.trim())}
               </span>
             ) : null}
             {letter.mailStatus === "uncertain" ? (
@@ -544,12 +550,14 @@ function LetterReader({
 
 function LettersSettingsSheet({
   characters,
+  configuredCharIds,
   timerSettings,
   onNotice,
   onSaveTimer,
   onClose,
 }: {
   characters: Character[];
+  configuredCharIds: Set<string>;
   timerSettings: LetterTimerSettings;
   onNotice: (message: string) => void;
   onSaveTimer: (settings: LetterTimerSettings) => void;
@@ -584,8 +592,6 @@ function LettersSettingsSheet({
           </button>
         </header>
         <div className="lt-sheet-body">
-          <LetterMailSettings onNotice={onNotice} />
-
           <section className="lt-sheet-section">
             <div className="flex items-center justify-between">
               <div>
@@ -627,6 +633,7 @@ function LettersSettingsSheet({
                   <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                     {characters.map(char => {
                       const selected = characterIds.includes(char.id);
+                      const hasMail = configuredCharIds.has(char.id);
                       return (
                         <button
                           key={char.id}
@@ -638,7 +645,7 @@ function LettersSettingsSheet({
                           }`}
                           onClick={() => toggleCharacter(char.id)}
                         >
-                          {char.name}
+                          {char.name}{hasMail ? " ✔" : ""}
                         </button>
                       );
                     })}
