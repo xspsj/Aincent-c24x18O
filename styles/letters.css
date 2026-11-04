@@ -1152,6 +1152,7 @@
   overflow-x: hidden;
   position: relative;
   padding: 14px 12px calc(80px + env(safe-area-inset-bottom, 0px));
+  touch-action: pan-y;
 }
 
 .lt-accordion-list {
@@ -1167,17 +1168,25 @@
   height: 62px;
   transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 16px rgba(40, 25, 10, 0.22), 0 1px 3px rgba(40, 25, 10, 0.12);
+  /* 允许点击铭牌前板，不干扰内部信件的拖拽 */
+  touch-action: manipulation;
 }
 
-/* 展开：完整高度 */
+/* 展开：完整高度，恢复 touch-action 让内部信件正常接管 */
 .lt-accordion-item.is-open {
   height: 74vh;
   min-height: 420px;
+  touch-action: pan-y;
 }
 
 /* 展开时抽屉撑满容器 */
 .lt-accordion-item .lt-drawer {
   height: 100%;
+}
+
+/* 信件按钮：long-press 拖拽期间禁止系统滚动接管 */
+.lt-accordion-item.is-open .lt-slot {
+  touch-action: none;
 }
 
 /* 邮票头像溢出修复 */
