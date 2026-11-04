@@ -239,6 +239,9 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
     }
   };
 
+  // mailConfigured 变量保留供未来 banner 使用，暂不显示
+  void mailConfigured;
+
   return (
     <section className="diary-app diary-entry-app lt-app" style={fontStyle}>
       <header className="diary-app-header diary-entry-header">
@@ -261,7 +264,8 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
 
       <input ref={fontFileRef} type="file" accept=".ttf,.otf,.woff,.woff2,font/*,application/font-woff,application/font-woff2" className="hidden" onChange={handleDiaryFontUpload} />
 
-      {/* 手风琴式角色信箱：铭牌条在下方（像真实抽屉前板），展开内容向上展开 */}
+      {/* 手风琴式角色信箱：每个 lt-accordion-item 包裹原版 LetterDrawer
+          收起时 height=62px 只露出底部铭牌前板（lt-drawer-front），展开时 height=74vh */}
       <main className="lt-accordion-main">
         {letterCharacterIds.length === 0 ? (
           <div className="diary-entry-empty">
@@ -275,38 +279,25 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
               const char = characters.find(c => c.id === charId);
               const charLetters = loadLetters(charId);
               const isOpen = activeCharacterId === charId;
-              const hasUnread = charLetters.some(l => !l.openedAt && !isLetterSealed(l, now));
               return (
-                <div key={charId} className={`lt-accordion-item${isOpen ? " is-open" : ""}`}>
-                  {/* 展开内容在铭牌条上方 */}
-                  {isOpen ? (
-                    <div className="lt-accordion-drawer">
-                      <LetterDrawer
-                        key={charId}
-                        letters={charLetters}
-                        characterName={char?.name ?? charId}
-                        avatar={char?.avatar}
-                        now={now}
-                        hiddenLetterId={hiddenLetterId}
-                        onPull={handlePull}
-                        onRequestDelete={letter => setDeleteCandidate(letter)}
-                      />
-                    </div>
-                  ) : null}
-                  {/* 铭牌条（抽屉前板）在底部 */}
-                  <button
-                    type="button"
-                    className="lt-accordion-handle"
-                    onClick={() => setActiveCharacterId(isOpen ? null : charId)}
-                    aria-expanded={isOpen}
-                  >
-                    <span className="lt-accordion-label-plate">
-                      <span className="lt-accordion-name">{char?.name ?? charId}</span>
-                      <span className="lt-accordion-count">{charLetters.length} 封</span>
-                    </span>
-                    {hasUnread && <span className="lt-shelf-dot" aria-label="有未读信件" />}
-                    <span className="lt-accordion-handle-bar" aria-hidden="true" />
-                  </button>
+                <div
+                  key={charId}
+                  className={`lt-accordion-item${isOpen ? " is-open" : ""}`}
+                >
+                  <LetterDrawer
+                    key={charId}
+                    letters={charLetters}
+                    characterName={char?.name ?? charId}
+                    avatar={char?.avatar}
+                    now={now}
+                    hiddenLetterId={hiddenLetterId}
+                    onPull={!isOpen ? undefined : handlePull}
+                    onRequestDelete={letter => setDeleteCandidate(letter)}
+                    onFrontClick={isOpen
+                      ? () => setActiveCharacterId(null)
+                      : () => setActiveCharacterId(charId)
+                    }
+                  />
                 </div>
               );
             })}
@@ -314,7 +305,7 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         )}
       </main>
 
-      {/* 右下角悬浮「让TA写」圆圈，固定在页面右下角，与抽屉无关 */}
+      {/* 右下角悬浮「让TA写」圆圈，固定右下角 */}
       <button
         type="button"
         className="lt-write-fab"
@@ -328,27 +319,30 @@ export function LettersApp({ onBack, onNotice }: LettersAppProps) {
         <span>{generating ? "写信中…" : "让TA写"}</span>
       </button>
 
-      {/* 角色选择弹窗 */}
+      {/* 「让TA写」角色选择弹窗——日记款底部滑出样式 */}
       {writeModalOpen ? (
-        <div className="lt-overlay lt-overlay-center" role="dialog" aria-modal="true" aria-label="选择写信角色" onClick={() => setWriteModalOpen(false)}>
-          <section className="lt-dialog" onClick={e => e.stopPropagation()}>
-            <header className="lt-sheet-head">
-              <h2>让谁写信？</h2>
-              <button type="button" className="diary-icon-btn" onClick={() => setWriteModalOpen(false)} aria-label="关闭">
+        <div className="lt-write-sheet-overlay" role="dialog" aria-modal="true" aria-label="选择写信角色" onClick={() => setWriteModalOpen(false)}>
+          <div className="lt-write-sheet" onClick={e => e.stopPropagation()}>
+            <div className="lt-write-sheet-header">
+              <div>
+                <div className="lt-write-sheet-title">让TA写 一封信</div>
+                <div className="lt-write-sheet-sub">选择角色后立即开始写信</div>
+              </div>
+              <button type="button" className="lt-write-sheet-close" onClick={() => setWriteModalOpen(false)} aria-label="关闭">
                 <X size={18} />
               </button>
-            </header>
-            <div className="lt-write-modal-list">
+            </div>
+            <div className="lt-write-sheet-chars">
               {characters.map(char => (
-                <button key={char.id} type="button" className="lt-write-modal-item" onClick={() => void handleManualTrigger(char.id)} disabled={generating}>
-                  <span className="lt-write-modal-avatar">
+                <button key={char.id} type="button" className="lt-write-sheet-char-btn" onClick={() => void handleManualTrigger(char.id)} disabled={generating}>
+                  <span className="lt-write-sheet-avatar">
                     {char.avatar ? <img src={char.avatar} alt="" /> : <Bot size={20} />}
                   </span>
-                  <span className="lt-write-modal-name">{char.name}</span>
+                  <span className="lt-write-sheet-char-name">{char.name}</span>
                 </button>
               ))}
             </div>
-          </section>
+          </div>
         </div>
       ) : null}
 
@@ -546,9 +540,7 @@ function LettersSettingsSheet({
                       const selected = characterIds.includes(char.id);
                       const hasMail = configuredCharIds.has(char.id);
                       return (
-                        <button
-                          key={char.id}
-                          type="button"
+                        <button key={char.id} type="button"
                           className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? "bg-black text-white border-black" : "bg-white text-gray-700 border-black/15 hover:border-black/30"}`}
                           onClick={() => toggleCharacter(char.id)}
                         >

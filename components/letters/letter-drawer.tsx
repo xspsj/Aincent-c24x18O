@@ -85,8 +85,10 @@ type LetterDrawerProps = {
   avatar?: string | null;
   now: number;
   hiddenLetterId: string | null;
-  onPull: (letter: Letter, slot: HTMLButtonElement) => void;
+  onPull?: (letter: Letter, slot: HTMLButtonElement) => void;
   onRequestDelete: (letter: Letter) => void;
+  /** 手风琴模式：点击底部铭牌前板时触发（展开/收起） */
+  onFrontClick?: () => void;
 };
 
 export function LetterDrawer({
@@ -97,6 +99,7 @@ export function LetterDrawer({
   hiddenLetterId,
   onPull,
   onRequestDelete,
+  onFrontClick,
 }: LetterDrawerProps) {
   const wellRef = useRef<HTMLDivElement | null>(null);
   const trashRef = useRef<HTMLDivElement | null>(null);
@@ -331,7 +334,7 @@ export function LetterDrawer({
                 onPointerCancel={handlePointerCancel}
                 onClick={slotEl => {
                   if (clickSuppressedRef.current) return;
-                  onPull(letter, slotEl);
+                  onPull?.(letter, slotEl);
                 }}
               />
             );
@@ -339,7 +342,15 @@ export function LetterDrawer({
         )}
       </div>
 
-      <div className="lt-drawer-front" data-drawer-front="">
+      <div
+        className="lt-drawer-front"
+        data-drawer-front=""
+        onClick={onFrontClick}
+        role={onFrontClick ? "button" : undefined}
+        tabIndex={onFrontClick ? 0 : undefined}
+        onKeyDown={onFrontClick ? e => { if (e.key === "Enter" || e.key === " ") onFrontClick(); } : undefined}
+        style={onFrontClick ? { cursor: "pointer" } : undefined}
+      >
         <span className="lt-drawer-label">
           <strong>{characterName}</strong>
           <em>
