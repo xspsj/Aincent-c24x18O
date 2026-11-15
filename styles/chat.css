@@ -1347,7 +1347,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 35;
+  z-index: 90;
   display: flex;
   align-items: center;
   gap: 12px;
