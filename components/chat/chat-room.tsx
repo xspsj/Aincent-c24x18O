@@ -97,6 +97,8 @@ import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
 import { addFavorite, addCombinedFavorite } from "@/lib/chat-favorites-storage";
 import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
+import { storeMediaBase64 } from "@/lib/media-cache-storage";
+import type { PhotoInputItem } from "@/components/chat/rich-input-modals";
 
 // ── Call system message detection ──────────────────────────
 // Call messages are stored with user/assistant role for correct prompt alternation,
@@ -3734,6 +3736,45 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         return true;
     };
 
+    /**
+     * 发送照片弹窗的多图入口：把每张 dataURL 转存成 media-store:// 引用
+     * （避免超大 dataURL 直接进 IndexedDB 主表），再按 merge 决定：
+     * - merge=false 或只有 1 张：逐张发成独立消息，行为等同连续手动发多次单图
+     * - merge=true 且 ≥2 张：发成一条消息，mediaData.images 存全部图片引用，
+     *   mediaUrl/label 仍保留第一张，未升级的渲染路径回退显示第一张也不会裂图
+     */
+    const sendPhotoMessages = async (items: PhotoInputItem[], merge: boolean): Promise<void> => {
+        if (items.length === 0) return;
+        let refs: string[];
+        try {
+            refs = await Promise.all(items.map(async item => {
+                const base64 = item.dataUrl.includes(",") ? item.dataUrl.slice(item.dataUrl.indexOf(",") + 1) : item.dataUrl;
+                const stored = await storeMediaBase64(base64, "image/jpeg");
+                return stored.ref;
+            }));
+        } catch {
+            showChatToast("图片处理失败，请重试");
+            return;
+        }
+
+        if (!merge || refs.length === 1) {
+            for (const ref of refs) {
+                if (!sendRichMessage("image", { label: "" }, "", ref)) break;
+            }
+            return;
+        }
+
+        sendRichMessage(
+            "image",
+            {
+                label: "",
+                images: refs.map(ref => ({ url: ref, label: "", photoType: "scene" as const })),
+            },
+            "",
+            refs[0],
+        );
+    };
+
     const sendSystemInstruction = (content: string): boolean => {
         if (isGenerating) {
             showChatToast("请先等待对方回复");
@@ -6778,7 +6819,7 @@ function formatCallDurationDisplay(durationStr: string): string {
             )}
             {richModal === "photo" && (
                 <PhotoInputModal
-                    onSend={(desc, imageDataUrl) => { setRichModal(null); sendRichMessage("image", { label: desc }, "", imageDataUrl); }}
+                    onSend={(items, merge) => { setRichModal(null); void sendPhotoMessages(items, merge); }}
                     onClose={() => setRichModal(null)}
                 />
             )}
