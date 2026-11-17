@@ -219,6 +219,20 @@ async function persistChatMediaPatch(
   await chatDb.messages.put(cached ?? nextMessage);
 }
 
+/** 压缩单张图片引用：成功时返回新引用与释放字节数；不需要/失败时返回 null。
+ *  供 compactChatImage 对合并图集里的每一张图分别调用——它们各自是独立的
+ *  media-store:// 引用，不能只处理封面。 */
+async function compactSingleImageRef(ref: string | undefined): Promise<{ nextRef: string; freedBytes: number } | null> {
+  if (!ref || !isMediaStoreRef(ref)) return null;
+  const stored = await loadMediaBlob(ref).catch(() => null);
+  if (!stored || stored.category !== "image") return null;
+  const compressed = await compressImageBlob(stored.blob).catch(() => null);
+  if (!compressed) return null;
+  const nextRef = await storeMediaBlob(compressed, compressed.type || stored.mimeType, "image");
+  await deleteMediaRef(ref).catch(() => undefined);
+  return { nextRef, freedBytes: Math.max(0, stored.blob.size - compressed.size) };
+}
+
 async function compactChatImage(message: ChatMessage, nowIso: string): Promise<{ changed: boolean; freedBytes: number }> {
   const mediaUrl = message.mediaUrl;
   const mediaRef = message.mediaData?.imageGenerationMediaRef;
@@ -257,7 +271,33 @@ async function compactChatImage(message: ChatMessage, nowIso: string): Promise<{
     oldBytes += estimateValueBytes(mediaUrl);
   }
 
-  if (!sourceBlob) return { changed: false, freedBytes: 0 };
+  // 合并图集：封面之外每一张图各自占独立引用，单独压缩替换——不依赖封面是否存在，
+  // 避免"封面已丢失但组内其余图片仍占用原图大小"的情况永远不被处理。
+  let imagesChanged = false;
+  let imagesFreedBytes = 0;
+  const sourceImages = message.mediaData?.images;
+  let nextImages = sourceImages;
+  if (sourceImages && sourceImages.length > 0) {
+    nextImages = await Promise.all(sourceImages.map(async img => {
+      const result = await compactSingleImageRef(img.url).catch(() => null);
+      if (!result) return img;
+      imagesChanged = true;
+      imagesFreedBytes += result.freedBytes;
+      return { ...img, url: result.nextRef };
+    }));
+  }
+
+  if (!sourceBlob) {
+    if (!imagesChanged) return { changed: false, freedBytes: 0 };
+    const nextMediaData: ChatMessage["mediaData"] = {
+      ...message.mediaData,
+      images: nextImages,
+      mediaCompressedAt: nowIso,
+    };
+    const cached = updateChatMessage(message.id, { mediaData: nextMediaData });
+    await chatDb.messages.put(cached ?? { ...message, mediaData: nextMediaData });
+    return { changed: true, freedBytes: imagesFreedBytes };
+  }
 
   const compressed = await compressImageBlob(sourceBlob).catch(() => null);
   const nextBlob = compressed ?? sourceBlob;
@@ -276,6 +316,7 @@ async function compactChatImage(message: ChatMessage, nowIso: string): Promise<{
   if (message.mediaData?.imageGenerationMediaRef) {
     nextMediaData.imageGenerationMediaRef = nextRef;
   }
+  if (imagesChanged) nextMediaData.images = nextImages;
   const nextMessage: ChatMessage = {
     ...message,
     mediaUrl: nextRef,
@@ -287,7 +328,10 @@ async function compactChatImage(message: ChatMessage, nowIso: string): Promise<{
   });
   await chatDb.messages.put(cached ?? nextMessage);
   const beforeBytes = oldBytes || sourceBlob.size;
-  return { changed: compressed !== null || mediaUrl !== nextRef, freedBytes: Math.max(0, beforeBytes - nextBlob.size) };
+  return {
+    changed: compressed !== null || mediaUrl !== nextRef || imagesChanged,
+    freedBytes: Math.max(0, beforeBytes - nextBlob.size) + imagesFreedBytes,
+  };
 }
 
 async function compactChatXiaohongshuShareImage(message: ChatMessage, nowIso: string): Promise<{ changed: boolean; freedBytes: number }> {
@@ -308,11 +352,20 @@ export async function cleanChatImage(message: ChatMessage, nowIso: string): Prom
   let freedBytes = 0;
   freedBytes += await deleteMediaRefWithSize(message.mediaUrl, seen);
   freedBytes += await deleteMediaRefWithSize(message.mediaData?.imageGenerationMediaRef, seen);
+  // 合并图集：封面之外每一张图各自占一份独立引用，必须逐一清理，否则组内其余
+  // 几张永远留在 media-store 里（既清不掉也不会被判成孤儿，因为仍被字段引用着）
+  const images = message.mediaData?.images;
+  for (const img of images ?? []) {
+    freedBytes += await deleteMediaRefWithSize(img.url, seen);
+  }
   const nextMediaData: ChatMessage["mediaData"] = {
     ...message.mediaData,
     mediaCleanedAt: nowIso,
   };
   delete nextMediaData.imageGenerationMediaRef;
+  if (images && images.length > 0) {
+    nextMediaData.images = images.map(img => ({ ...img, url: undefined }));
+  }
   const nextMessage: ChatMessage = {
     ...message,
     mediaUrl: undefined,
@@ -343,7 +396,7 @@ async function runChatImageMaintenance(result: MediaMaintenanceResult, nowMs: nu
     const isRegularImage = isChatImageMessage(message);
     const isXiaohongshuShareImage = isChatXiaohongshuShareImage(message);
     if (!isRegularImage && !isXiaohongshuShareImage) continue;
-    if (isRegularImage && !message.mediaUrl && !message.mediaData?.imageGenerationMediaRef) continue;
+    if (isRegularImage && !message.mediaUrl && !message.mediaData?.imageGenerationMediaRef && !message.mediaData?.images?.length) continue;
     if (isOlderThan(message.createdAt, CLEAN_AFTER_MS, nowMs)) {
       result.freedBytes += isXiaohongshuShareImage
         ? await cleanChatXiaohongshuShareImage(message, nowIso).catch(() => 0)
