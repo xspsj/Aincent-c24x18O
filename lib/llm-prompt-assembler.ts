@@ -145,7 +145,7 @@ type PromptBlock = {
     order: number;
     marker: string;
     fromHistory?: boolean;
-    imageUrl?: string;      // vision: image URL/data URL attached to this prompt block
+    imageUrl?: string | string[]; // vision: image URL(s)/data URL(s) attached to this prompt block（合并图集=多张）
     reasoning?: string;
     openRouterReasoningDetails?: unknown[];
     toolCalls?: LLMToolCallPayload[];
@@ -171,6 +171,13 @@ function isImageGenerationMediaMessage(msg: ChatMessage): boolean {
 }
 
 function formatPhotoDirective(msg: ChatMessage, prefix = ""): string {
+    const images = msg.mediaData?.images;
+    if (images && images.length >= 2) {
+        // 合并图集：事后记忆只需要让 AI 知道"当时收到一组共 N 张"，不需要逐张展开标签
+        const description = msg.mediaData?.label?.trim() || "图片";
+        const photoType = resolvePhotoType(msg.mediaData);
+        return `${prefix}[照片:${photoType}:${description}（共${images.length}张）]`;
+    }
     const description = msg.mediaData?.label?.trim() || "图片";
     const photoType = resolvePhotoType(msg.mediaData);
     return `${prefix}[照片:${photoType}:${description}]`;
@@ -180,7 +187,13 @@ function formatImageGenerationDirective(msg: ChatMessage, prefix = ""): string {
     return formatPhotoDirective(msg, prefix);
 }
 
-function getPromptVisionImageUrl(msg: ChatMessage): string | undefined {
+function getPromptVisionImageUrl(msg: ChatMessage): string | string[] | undefined {
+    // 合并图集：把组内全部有效图片引用都给模型看，而不是只看封面——
+    // 否则多选合并发图就失去了意义（用户确认过：当下看图要全看到，事后记忆才只需要知道张数）
+    if (msg.mediaType === "image" && msg.mediaData?.images && msg.mediaData.images.length >= 2) {
+        const urls = msg.mediaData.images.map(img => img.url).filter((url): url is string => Boolean(url));
+        return urls.length > 0 ? urls : undefined;
+    }
     if (((msg.mediaType === "image") || (msg.mediaType === "media_file" && msg.mediaData?.fileType === "image")) && msg.mediaUrl) {
         return msg.mediaUrl;
     }
@@ -536,7 +549,7 @@ function pushChronologicalShortTermBlocks(params: {
         prevWasHistory = true;
 
         let body = stripStateAndInnerForPrompt(msg.content);
-        let imageUrl: string | undefined;
+        let imageUrl: string | string[] | undefined;
 
         if (msg.mediaType) {
             const visionImageUrl = visionEnabled ? getPromptVisionImageUrl(msg) : undefined;
@@ -1007,7 +1020,7 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
             prevTs = ts;
             prevRole = promptRole;
             let body = stripStateAndInnerForPrompt(msg.content);
-            let imageUrl: string | undefined;
+            let imageUrl: string | string[] | undefined;
 
             // Format rich-media messages as bracket markers so the AI sees them in context
             if (msg.mediaType) {
@@ -1093,10 +1106,13 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
                finalPayload[finalPayload.length - 1].role !== "tool");
 
         if (b.imageUrl) {
-            // Vision message: build multi-part content with image (never merged)
+            // Vision message: build multi-part content with image(s) (never merged)
             const parts: LLMContentPart[] = [];
             if (processedText) parts.push({ type: "text", text: processedText });
-            parts.push({ type: "image_url", image_url: { url: b.imageUrl, detail: "low" } });
+            const urls = Array.isArray(b.imageUrl) ? b.imageUrl : [b.imageUrl];
+            for (const url of urls) {
+                if (url) parts.push({ type: "image_url", image_url: { url, detail: "low" } });
+            }
             finalPayload.push({
                 role: b.role,
                 content: parts,
@@ -1728,7 +1744,7 @@ function pushGroupChronologicalShortTermBlocks(params: {
         prevWasHistory = true;
 
         let body = msg.content;
-        let imageUrl: string | undefined;
+        let imageUrl: string | string[] | undefined;
 
         const visionImageUrl = visionEnabled ? getPromptVisionImageUrl(msg) : undefined;
         if (visionImageUrl) {
@@ -2218,7 +2234,7 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
             prevTs = ts;
             prevRole = promptRole;
             let body = msg.content; // Already annotated with [SenderName]: prefix
-            let imageUrl: string | undefined;
+            let imageUrl: string | string[] | undefined;
 
             const visionImageUrl = groupVisionEnabled ? getPromptVisionImageUrl(msg) : undefined;
             if (visionImageUrl) {
@@ -2266,10 +2282,13 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
             finalPayload[finalPayload.length - 1].role !== "tool";
 
         if (b.imageUrl) {
-            // Vision message: build multi-part content with image (never merged)
+            // Vision message: build multi-part content with image(s) (never merged)
             const parts: LLMContentPart[] = [];
             if (processedText) parts.push({ type: "text", text: processedText });
-            parts.push({ type: "image_url", image_url: { url: b.imageUrl, detail: "low" } });
+            const urls = Array.isArray(b.imageUrl) ? b.imageUrl : [b.imageUrl];
+            for (const url of urls) {
+                if (url) parts.push({ type: "image_url", image_url: { url, detail: "low" } });
+            }
             finalPayload.push({
                 role: b.role,
                 content: parts,
