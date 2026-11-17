@@ -103,7 +103,9 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
         case "app_card":
             return <AppCardBubble msg={msg} characterId={characterId} characterName={msg.senderName || charName} />;
         case "image":
-            return <ImageBubble msg={msg} onUpdate={onUpdate} characterId={characterId} />;
+            return (msg.mediaData?.images?.length ?? 0) >= 2
+                ? <ImageGroupBubble msg={msg} characterId={characterId} />
+                : <ImageBubble msg={msg} onUpdate={onUpdate} characterId={characterId} />;
         case "location":
             return <LocationBubble msg={msg} />;
         case "poke":
@@ -154,6 +156,7 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
         if (prev.msg.mediaData?.imageGenerationPrompt !== next.msg.mediaData?.imageGenerationPrompt) return false;
         if (prev.msg.mediaData?.imageGenerationStatus !== next.msg.mediaData?.imageGenerationStatus) return false;
         if (prev.msg.mediaData?.imageGenerationError !== next.msg.mediaData?.imageGenerationError) return false;
+        if (prev.msg.mediaData?.images?.length !== next.msg.mediaData?.images?.length) return false;
         if (prev.msg.mediaUrl !== next.msg.mediaUrl) return false;
     }
     if (prev.charName !== next.charName) return false;
@@ -1521,6 +1524,229 @@ function ImageBubble({
                 </div>
             </div>
             {previewAndDialog}
+        </div>
+    );
+}
+
+// ── Image Group (合并图集：层叠卡堆 / 展开瀑布流) ─────────────────────────────
+
+/** 单张图的 media-store:// 引用解析成可渲染 URL；非引用（data URL/普通地址）原样直通 */
+function useResolvedImageUrl(rawUrl?: string): { url: string; expired: boolean } {
+    const [url, setUrl] = useState<string>(rawUrl && !isMediaStoreRef(rawUrl) ? rawUrl : "");
+    const [expired, setExpired] = useState(false);
+
+    useEffect(() => {
+        if (!rawUrl) { setUrl(""); setExpired(false); return; }
+        if (!isMediaStoreRef(rawUrl)) { setUrl(rawUrl); setExpired(false); return; }
+        let revokeUrl = "";
+        let cancelled = false;
+        loadMediaObjectUrl(rawUrl).then(objUrl => {
+            if (cancelled) return;
+            if (objUrl) { setUrl(objUrl); revokeUrl = objUrl; }
+            else setExpired(true);
+        });
+        return () => {
+            cancelled = true;
+            if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+        };
+    }, [rawUrl]);
+
+    return { url, expired };
+}
+
+/** 卡堆里的一张图：中心张是封面（原尺寸、可点击）；左右两侧各露一张上/下张的边缘（略缩小、退后） */
+function ImageGroupStackLayer({ rawUrl, side, onClick }: { rawUrl?: string; side: "left" | "center" | "right"; onClick?: () => void }) {
+    const { url } = useResolvedImageUrl(rawUrl);
+    return (
+        <div
+            className="chat-photo-group-layer"
+            data-side={side}
+            onClick={side === "center" ? onClick : undefined}
+        >
+            {url ? <img src={url} alt="" /> : <div className="chat-photo-group-layer-placeholder" />}
+        </div>
+    );
+}
+
+/** 展开瀑布流里的一张大图：复用 ImageBubble 的点击预览习惯，点开全屏查看 */
+function ImageGroupExpandedItem({ images, index }: { images: NonNullable<ChatMessage["mediaData"]>["images"]; index: number }) {
+    const { url } = useResolvedImageUrl(images?.[index]?.url);
+    const [showPreview, setShowPreview] = useState(false);
+    return (
+        <>
+            <div
+                className="chat-photo-group-expanded-item"
+                onClick={e => { e.stopPropagation(); if (url) setShowPreview(true); }}
+            >
+                {url ? <img src={url} alt="" /> : <div className="chat-photo-group-layer-placeholder" />}
+            </div>
+            {showPreview && (
+                <ImageGroupFullscreenPreview
+                    images={images}
+                    startIndex={index}
+                    onClose={() => setShowPreview(false)}
+                />
+            )}
+        </>
+    );
+}
+
+/**
+ * 全屏预览一组图片：从点击时的那一张开始，支持继续左右滑动切换组内其它图片，
+ * 不再是看完一张就要关掉重新点下一张。复用 MediaPreviewOverlay 的保存/样式习惯，
+ * 但轮播本体独立实现（MediaPreviewOverlay 本身只认单张图）。
+ */
+function ImageGroupFullscreenPreview({
+    images,
+    startIndex,
+    onClose,
+}: {
+    images: NonNullable<ChatMessage["mediaData"]>["images"];
+    startIndex: number;
+    onClose: () => void;
+}) {
+    const list = images || [];
+    const [index, setIndex] = useState(Math.min(Math.max(startIndex, 0), Math.max(list.length - 1, 0)));
+    const touchStartXRef = useRef<number | null>(null);
+    const { url } = useResolvedImageUrl(list[index]?.url);
+
+    if (typeof document === "undefined" || list.length === 0) return null;
+
+    const canPrev = index > 0;
+    const canNext = index < list.length - 1;
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        touchStartXRef.current = e.touches[0]?.clientX ?? null;
+    };
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        const startX = touchStartXRef.current;
+        touchStartXRef.current = null;
+        if (startX === null) return;
+        const endX = e.changedTouches[0]?.clientX ?? startX;
+        const dx = endX - startX;
+        const SWIPE_THRESHOLD = 32;
+        if (dx <= -SWIPE_THRESHOLD && canNext) setIndex(i => i + 1); // 左滑 → 下一张
+        else if (dx >= SWIPE_THRESHOLD && canPrev) setIndex(i => i - 1); // 右滑 → 上一张
+    };
+
+    return createPortal(
+        <div
+            className="chat-photo-group-fullscreen"
+            onClick={onClose}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
+            {url && <img src={url} alt="" onClick={e => e.stopPropagation()} />}
+            <div className="chat-photo-group-fullscreen-counter">{index + 1} / {list.length}</div>
+        </div>,
+        document.body,
+    );
+}
+
+/**
+ * 合并图集气泡：折叠态为层叠卡堆（封面 + 最多露 2 张压边 + "展开 N" 胶囊，
+ * 按钮位于图片左侧垂直居中）；展开态为纵向瀑布流，"收起"按钮位于第一张图左侧垂直居中。
+ * 浏览到第几张 / 是否展开都是组件内瞬态（useState），不写回存储——
+ * 退出聊天室或刷新重进后组件重新挂载，自动复位到折叠态、第 1 张在最前面。
+ */
+function ImageGroupBubble({ msg }: { msg: ChatMessage; characterId?: string }) {
+    const images = msg.mediaData?.images || [];
+    const [activeIndex, setActiveIndex] = useState(0);
+    const [expanded, setExpanded] = useState(false);
+    const [showActivePreview, setShowActivePreview] = useState(false);
+    const touchStartXRef = useRef<number | null>(null);
+    const activeRawUrl = images[activeIndex]?.url;
+    const { url: activeUrl } = useResolvedImageUrl(activeRawUrl);
+
+    if (images.length < 2) return null; // 分发层已保证 ≥2，这里只是类型兜底
+
+    const canPrev = activeIndex > 0;
+    const canNext = activeIndex < images.length - 1;
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        touchStartXRef.current = e.touches[0]?.clientX ?? null;
+    };
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        const startX = touchStartXRef.current;
+        touchStartXRef.current = null;
+        if (startX === null) return;
+        const endX = e.changedTouches[0]?.clientX ?? startX;
+        const dx = endX - startX;
+        const SWIPE_THRESHOLD = 32;
+        if (dx <= -SWIPE_THRESHOLD && canNext) setActiveIndex(i => i + 1); // 左滑 → 下一张
+        else if (dx >= SWIPE_THRESHOLD && canPrev) setActiveIndex(i => i - 1); // 右滑 → 上一张
+    };
+
+    if (expanded) {
+        return (
+            <div className="chat-photo-group-expanded">
+                <div className="chat-photo-group-expanded-list">
+                    {images.map((img, index) => (
+                        <div className="chat-photo-group-expanded-item-wrap" key={`${msg.id}-${index}`}>
+                            {index === 0 && (
+                                <button
+                                    type="button"
+                                    className="chat-photo-group-collapse-btn"
+                                    onClick={e => { e.stopPropagation(); setExpanded(false); setActiveIndex(0); }}
+                                >
+                                    收起
+                                </button>
+                            )}
+                            <ImageGroupExpandedItem images={images} index={index} />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    // 折叠态：以当前张为中心左右各露一张边（左边露上一张、右边露下一张）。
+    // 到边界时对应一侧没有牌可露，自然只剩一边——与真实微信的卡堆效果一致。
+    const leftOffset = canPrev ? -1 : null;
+    const rightOffset = canNext ? 1 : null;
+
+    return (
+        <div className="chat-photo-group-collapsed">
+            <div
+                className="chat-photo-group-stack"
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+            >
+                {leftOffset !== null && (
+                    <ImageGroupStackLayer
+                        key={`${msg.id}-side-${activeIndex + leftOffset}`}
+                        rawUrl={images[activeIndex + leftOffset]?.url}
+                        side="left"
+                    />
+                )}
+                {rightOffset !== null && (
+                    <ImageGroupStackLayer
+                        key={`${msg.id}-side-${activeIndex + rightOffset}`}
+                        rawUrl={images[activeIndex + rightOffset]?.url}
+                        side="right"
+                    />
+                )}
+                <ImageGroupStackLayer
+                    key={`${msg.id}-cover-${activeIndex}`}
+                    rawUrl={activeRawUrl}
+                    side="center"
+                    onClick={() => { if (activeUrl) setShowActivePreview(true); }}
+                />
+                <button
+                    type="button"
+                    className="chat-photo-group-expand-btn"
+                    onClick={e => { e.stopPropagation(); setExpanded(true); }}
+                >
+                    展开 {images.length}
+                </button>
+            </div>
+            {showActivePreview && (
+                <ImageGroupFullscreenPreview
+                    images={images}
+                    startIndex={activeIndex}
+                    onClose={() => setShowActivePreview(false)}
+                />
+            )}
         </div>
     );
 }

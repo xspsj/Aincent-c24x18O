@@ -46,8 +46,15 @@ import {
 import { resolvePhotoType } from "./rich-message-parser";
 
 function formatPhotoDirectiveForPrompt(msg: ChatMessage): string {
-    const description = msg.mediaData?.label?.trim() || "图片";
+    const images = msg.mediaData?.images;
     const photoType = resolvePhotoType(msg.mediaData);
+    if (images && images.length >= 2) {
+        // 合并图集：和 llm-prompt-assembler.ts 的 formatPhotoDirective 保持一致——
+        // 这里走的是独立的短期记忆事件流格式化路径，不会复用那边的函数，必须同步改
+        const description = msg.mediaData?.label?.trim() || "图片";
+        return `[照片:${photoType}:${description}（共${images.length}张）]`;
+    }
+    const description = msg.mediaData?.label?.trim() || "图片";
     return `[照片:${photoType}:${description}]`;
 }
 

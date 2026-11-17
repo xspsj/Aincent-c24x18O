@@ -14,6 +14,7 @@ import type { StateValue } from "./chat-storage";
 import { parseStateValues, mergeStateValues } from "./state-value-parser";
 import { stripActionShells } from "./action-parser";
 import { stripTextToolDirectives } from "./text-tool-protocol";
+import { stripPhotoRecognition } from "./photo-recognition-protocol";
 import {
     formatCustomAppDirectiveSummary,
     getCustomAppDirectiveSyntaxHead,
@@ -624,6 +625,61 @@ function extractBracketBlock(text: string, tag: string): { cleaned: string; cont
 // ── Segment parser ──────────────────────────────────────
 
 /**
+ * 照片标记连续聚合（方向 A）：角色/用户连续写出多个 [照片:类型:描述]，
+ * 标记之间只允许空白（不能夹杂其他文字），整段识别成一条多图消息。
+ * 只聚合内置照片标记，不聚合自定义 APP 指令。
+ */
+function tryConsumePhotoRun(
+    segment: string,
+    firstIndex: number,
+    firstMatchText: string,
+    firstPart: ParsedMessagePart,
+): { part: ParsedMessagePart; consumedEnd: number } | null {
+    const images: NonNullable<ChatMessage["mediaData"]>["images"] = [{
+        url: firstPart.mediaData?.imageGenerationMediaRef,
+        label: firstPart.mediaData?.label,
+        photoType: firstPart.mediaData?.photoType as PhotoType | undefined,
+        useReferenceImage: firstPart.mediaData?.useReferenceImage,
+        useUserReferenceImage: firstPart.mediaData?.useUserReferenceImage,
+    }];
+    let cursor = firstIndex + firstMatchText.length;
+
+    for (;;) {
+        // 标记之间只能是空白（含换行），不能夹杂其他文字——否则不属于同一组
+        const gapMatch = segment.slice(cursor).match(/^\s*/);
+        const gapLen = gapMatch ? gapMatch[0].length : 0;
+        const nextStart = cursor + gapLen;
+        const rest = segment.slice(nextStart);
+        if (!rest) break;
+
+        const candidate = findBuiltInRichCandidate(rest);
+        if (!candidate || candidate.index !== 0) break; // 下一个标记必须紧跟在空白之后
+        const part = candidate.build();
+        if (part.mediaType !== "image") break; // 不是照片标记，聚合结束
+
+        images.push({
+            url: part.mediaData?.imageGenerationMediaRef,
+            label: part.mediaData?.label,
+            photoType: part.mediaData?.photoType as PhotoType | undefined,
+            useReferenceImage: part.mediaData?.useReferenceImage,
+            useUserReferenceImage: part.mediaData?.useUserReferenceImage,
+        });
+        cursor = nextStart + candidate.matchText.length;
+    }
+
+    if (images.length < 2) return null;
+
+    return {
+        part: {
+            content: "",
+            mediaType: "image",
+            mediaData: { ...firstPart.mediaData, images },
+        },
+        consumedEnd: cursor,
+    };
+}
+
+/**
  * Parse a segment for rich-media markers.
  * If found, splits into before-text + media + recurse(after-text).
  * If not found, pushes as plain text.
@@ -640,11 +696,24 @@ function parseSegment(segment: string, parts: ParsedMessagePart[]) {
 
     if (best) {
         const before = segment.slice(0, best.index).trim();
-        const after = segment.slice(best.index + best.matchText.length).trim();
 
         // `before` is guaranteed marker-free (we chose the earliest marker).
         if (before) parts.push({ content: before });
-        parts.push(best.build());
+
+        // 只有内置照片标记才尝试聚合；自定义 APP 指令直接走原单条逻辑
+        const built = best === builtIn ? best.build() : null;
+        if (built?.mediaType === "image") {
+            const run = tryConsumePhotoRun(segment, best.index, best.matchText, built);
+            if (run) {
+                parts.push(run.part);
+                const after = segment.slice(run.consumedEnd).trim();
+                if (after) parseSegment(after, parts);
+                return;
+            }
+        }
+
+        const after = segment.slice(best.index + best.matchText.length).trim();
+        parts.push(built ?? best.build());
         if (after) parseSegment(after, parts);
         return;
     }
@@ -725,7 +794,7 @@ export function parseAIResponse(rawText: string, previousState: StateValue[]): P
     //    part empty → filtered out → inner monologue lands on the first real reply.
     const cleaned = parts.map(p => {
         if (p.mediaType) return p;
-        const display = stripTextToolDirectives(restore(p.content));
+        const display = stripPhotoRecognition(stripTextToolDirectives(restore(p.content)));
         return { ...p, content: display };
     }).filter(p => p.mediaType || !isInvisibleOrWhitespaceOnly(p.content));
 

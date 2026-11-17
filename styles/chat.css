@@ -7311,3 +7311,238 @@
   background: currentColor;
   animation: chat-stream-cursor-blink 1s steps(2, start) infinite;
 }
+
+/* ══════════════════════════════════════════
+   发送照片弹窗：九宫格多选预览
+   ══════════════════════════════════════════ */
+.photo-input-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+
+.photo-input-grid-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--c-input, rgba(0, 0, 0, 0.04));
+}
+
+.photo-input-grid-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-input-grid-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.photo-input-grid-add {
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  border: 1.5px dashed var(--c-card-border, rgba(0, 0, 0, 0.15));
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.photo-input-grid-add:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.photo-input-grid-add-loading {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--c-icon, rgba(0, 0, 0, 0.3));
+  border-top-color: transparent;
+  animation: photo-input-grid-spin 0.8s linear infinite;
+}
+
+@keyframes photo-input-grid-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ══════════════════════════════════════════
+   合并图集气泡：折叠态层叠卡堆 + 展开瀑布流
+   ══════════════════════════════════════════ */
+.chat-photo-group-collapsed {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-photo-group-stack {
+  position: relative;
+  width: 180px;
+  height: 240px;
+  touch-action: pan-y;
+  /* 独立层叠上下文：卡堆内部无论用多大 z-index 做层次，都不可能跑到外部的
+     聊天室顶栏、头像之类元素前面——上一版只调小 z-index 数值治标不治本 */
+  isolation: isolate;
+}
+
+.chat-photo-group-layer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100%;
+  margin-left: -50%;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--c-input, rgba(0, 0, 0, 0.04));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+/* 中心张：封面，原尺寸，置顶，可点击 */
+.chat-photo-group-layer[data-side="center"] {
+  transform: translateX(0) scale(1);
+  z-index: 3;
+}
+
+/* 左侧：露上一张的左边缘，整体缩小并退到封面后面 */
+.chat-photo-group-layer[data-side="left"] {
+  transform: translateX(-14px) scale(0.92);
+  z-index: 1;
+}
+
+/* 右侧：露下一张的右边缘，整体缩小并退到封面后面 */
+.chat-photo-group-layer[data-side="right"] {
+  transform: translateX(14px) scale(0.92);
+  z-index: 2;
+}
+
+.chat-photo-group-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.chat-photo-group-layer-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--c-input, rgba(0, 0, 0, 0.06));
+}
+
+.chat-photo-group-expand-btn {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translate(-100%, -50%);
+  border: none;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: calc(12px * var(--app-text-scale, 1));
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-photo-group-expanded {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 260px;
+}
+
+.chat-photo-group-collapse-btn {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translate(-100%, -50%);
+  border: none;
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: calc(12px * var(--app-text-scale, 1));
+  background: var(--c-input, rgba(0, 0, 0, 0.08));
+  color: var(--c-text, inherit);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-photo-group-expanded-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.chat-photo-group-expanded-item-wrap {
+  position: relative;
+}
+
+.chat-photo-group-expanded-item {
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--c-input, rgba(0, 0, 0, 0.04));
+}
+
+.chat-photo-group-expanded-item img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+/* 全屏预览：从点击的那张开始，支持左右滑动切换组内其它图片 */
+.chat-photo-group-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: pan-y;
+}
+
+.chat-photo-group-fullscreen img {
+  max-width: 90vw;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.chat-photo-group-fullscreen-counter {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: calc(13px * var(--app-text-scale, 1));
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+

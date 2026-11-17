@@ -145,7 +145,7 @@ type PromptBlock = {
     order: number;
     marker: string;
     fromHistory?: boolean;
-    imageUrl?: string;      // vision: image URL/data URL attached to this prompt block
+    imageUrl?: string | string[]; // vision: image URL(s)/data URL(s) attached to this prompt block（合并图集=多张）
     reasoning?: string;
     openRouterReasoningDetails?: unknown[];
     toolCalls?: LLMToolCallPayload[];
@@ -171,6 +171,13 @@ function isImageGenerationMediaMessage(msg: ChatMessage): boolean {
 }
 
 function formatPhotoDirective(msg: ChatMessage, prefix = ""): string {
+    const images = msg.mediaData?.images;
+    if (images && images.length >= 2) {
+        // 合并图集：事后记忆只需要让 AI 知道"当时收到一组共 N 张"，不需要逐张展开标签
+        const description = msg.mediaData?.label?.trim() || "图片";
+        const photoType = resolvePhotoType(msg.mediaData);
+        return `${prefix}[照片:${photoType}:${description}（共${images.length}张）]`;
+    }
     const description = msg.mediaData?.label?.trim() || "图片";
     const photoType = resolvePhotoType(msg.mediaData);
     return `${prefix}[照片:${photoType}:${description}]`;
@@ -180,7 +187,13 @@ function formatImageGenerationDirective(msg: ChatMessage, prefix = ""): string {
     return formatPhotoDirective(msg, prefix);
 }
 
-function getPromptVisionImageUrl(msg: ChatMessage): string | undefined {
+function getPromptVisionImageUrl(msg: ChatMessage): string | string[] | undefined {
+    // 合并图集：把组内全部有效图片引用都给模型看，而不是只看封面——
+    // 否则多选合并发图就失去了意义（用户确认过：当下看图要全看到，事后记忆才只需要知道张数）
+    if (msg.mediaType === "image" && msg.mediaData?.images && msg.mediaData.images.length >= 2) {
+        const urls = msg.mediaData.images.map(img => img.url).filter((url): url is string => Boolean(url));
+        return urls.length > 0 ? urls : undefined;
+    }
     if (((msg.mediaType === "image") || (msg.mediaType === "media_file" && msg.mediaData?.fileType === "image")) && msg.mediaUrl) {
         return msg.mediaUrl;
     }
@@ -536,7 +549,7 @@ function pushChronologicalShortTermBlocks(params: {
         prevWasHistory = true;
 
         let body = stripStateAndInnerForPrompt(msg.content);
-        let imageUrl: string | undefined;
+        let imageUrl: string | string[] | undefined;
 
         if (msg.mediaType) {
             const visionImageUrl = visionEnabled ? getPromptVisionImageUrl(msg) : undefined;
@@ -1007,7 +1020,7 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
             prevTs = ts;
             prevRole = promptRole;
             let body = stripStateAndInnerForPrompt(msg.content);
-            let imageUrl: string | undefined;
+            let imageUrl: string | string[] | undefined;
 
             // Format rich-media messages as bracket markers so the AI sees them in context
             if (msg.mediaType) {
@@ -1063,6 +1076,26 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
         });
     }
 
+    // 真实照片识图描述：用户发了真实照片（非角色生图）时，要求角色顺手把看到的内容写成
+    // 一句话描述，系统会提取后静默回写进这条照片消息的记忆（取代原来的空占位"图片"）。
+    // 图片本体还在时，AI 的感知始终以直接看图为准；这条描述只在图片以后被清理（如用户清理
+    // 存储空间）后，作为唯一能留存下来的文字记忆兜底，让角色以后还记得"当时收到了什么样的照片"。
+    const recentRealUserPhotoMessages = history.slice(-5).filter(m =>
+        m.role === "user" && m.mediaType === "image" && !m.mediaData?.imageGenerationStatus,
+    );
+    if (input.enableVision && recentRealUserPhotoMessages.length > 0) {
+        const hasMergedGroup = recentRealUserPhotoMessages.some(m => (m.mediaData?.images?.length ?? 0) >= 2);
+        blocks.push({
+            text: hasMergedGroup
+                ? "【系统动作提醒】对方刚发来的照片里有一组合并发送的多张图片，你已经看到了全部图片内容。请在回复末尾附带：[识图:第一张描述|第二张描述|...]（按图片顺序，每张一句话简短描述，用 | 分隔，不要加序号文字）。这不是对话内容，系统会静默提取用于记忆，不会展示给对方。"
+                : "【系统动作提醒】对方刚发来一张真实照片，你已经看到了图片内容。请在回复末尾附带：[识图:一句话简短描述]（描述你看到的画面）。这不是对话内容，系统会静默提取用于记忆，不会展示给对方。",
+            role: "system",
+            depth: 0,
+            order: 9998,
+            marker: "photo-recognition-memory-rule",
+        });
+    }
+
     // --- Sort: depth descending, then order ascending ---
     blocks.sort((a, b) => {
         if (b.depth !== a.depth) return b.depth - a.depth;
@@ -1093,10 +1126,13 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
                finalPayload[finalPayload.length - 1].role !== "tool");
 
         if (b.imageUrl) {
-            // Vision message: build multi-part content with image (never merged)
+            // Vision message: build multi-part content with image(s) (never merged)
             const parts: LLMContentPart[] = [];
             if (processedText) parts.push({ type: "text", text: processedText });
-            parts.push({ type: "image_url", image_url: { url: b.imageUrl, detail: "low" } });
+            const urls = Array.isArray(b.imageUrl) ? b.imageUrl : [b.imageUrl];
+            for (const url of urls) {
+                if (url) parts.push({ type: "image_url", image_url: { url, detail: "low" } });
+            }
             finalPayload.push({
                 role: b.role,
                 content: parts,
@@ -1728,7 +1764,7 @@ function pushGroupChronologicalShortTermBlocks(params: {
         prevWasHistory = true;
 
         let body = msg.content;
-        let imageUrl: string | undefined;
+        let imageUrl: string | string[] | undefined;
 
         const visionImageUrl = visionEnabled ? getPromptVisionImageUrl(msg) : undefined;
         if (visionImageUrl) {
@@ -2218,7 +2254,7 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
             prevTs = ts;
             prevRole = promptRole;
             let body = msg.content; // Already annotated with [SenderName]: prefix
-            let imageUrl: string | undefined;
+            let imageUrl: string | string[] | undefined;
 
             const visionImageUrl = groupVisionEnabled ? getPromptVisionImageUrl(msg) : undefined;
             if (visionImageUrl) {
@@ -2240,6 +2276,23 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
                 fromHistory: true,
                 imageUrl,
             });
+        });
+    }
+
+    // 真实照片识图描述（群聊同单聊规则，见 assemblePromptPayload 的同名注释）
+    const groupRecentRealUserPhotoMessages = history.slice(-5).filter(m =>
+        m.role === "user" && m.mediaType === "image" && !m.mediaData?.imageGenerationStatus,
+    );
+    if (input.enableVision && groupRecentRealUserPhotoMessages.length > 0) {
+        const groupHasMergedPhoto = groupRecentRealUserPhotoMessages.some(m => (m.mediaData?.images?.length ?? 0) >= 2);
+        blocks.push({
+            text: groupHasMergedPhoto
+                ? "【系统动作提醒】群里刚有人发来一组合并发送的多张图片，你已经看到了全部图片内容。请在你的回复末尾附带：[识图:第一张描述|第二张描述|...]（按图片顺序，每张一句话简短描述，用 | 分隔，不要加序号文字）。这不是对话内容，系统会静默提取用于记忆，不会展示给群成员。"
+                : "【系统动作提醒】群里刚有人发来一张真实照片，你已经看到了图片内容。请在你的回复末尾附带：[识图:一句话简短描述]（描述你看到的画面）。这不是对话内容，系统会静默提取用于记忆，不会展示给群成员。",
+            role: "system",
+            depth: 0,
+            order: 9998,
+            marker: "photo-recognition-memory-rule",
         });
     }
 
@@ -2266,10 +2319,13 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
             finalPayload[finalPayload.length - 1].role !== "tool";
 
         if (b.imageUrl) {
-            // Vision message: build multi-part content with image (never merged)
+            // Vision message: build multi-part content with image(s) (never merged)
             const parts: LLMContentPart[] = [];
             if (processedText) parts.push({ type: "text", text: processedText });
-            parts.push({ type: "image_url", image_url: { url: b.imageUrl, detail: "low" } });
+            const urls = Array.isArray(b.imageUrl) ? b.imageUrl : [b.imageUrl];
+            for (const url of urls) {
+                if (url) parts.push({ type: "image_url", image_url: { url, detail: "low" } });
+            }
             finalPayload.push({
                 role: b.role,
                 content: parts,

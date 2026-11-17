@@ -216,6 +216,21 @@ export type ChatMessage = {
         useReferenceImage?: boolean; // AI photo tag: whether to send the character reference image to the generator
         useUserReferenceImage?: boolean; // whether to send the user reference image to the generator
         photoType?: "scene" | "char" | "user" | "people"; // [照片:类型:描述]：scene=纯场景 char=角色 user=用户 people=双人
+        /**
+         * 合并图集（≥2 张）：连续多个 [照片:类型:描述] 标签（或用户九宫格多选且勾选"合并展示"）
+         * 聚合成的一条消息。images[0] 与本层 label/photoType/mediaUrl 等旧字段保持一致，
+         * 供未升级的渲染路径回退显示第一张，不会裂图。
+         */
+        images?: Array<{
+            url?: string;          // 对应这张图的 mediaUrl（可能是 media-store:// 引用或 data URL）
+            label?: string;        // 这张图的描述/生图 prompt
+            photoType?: "scene" | "char" | "user" | "people";
+            useReferenceImage?: boolean;
+            useUserReferenceImage?: boolean;
+            recipientId?: string;  // 群聊这张图里出镜的角色 ID
+            imageGenerationStatus?: "pending" | "failed" | "generated" | "manual";
+            imageGenerationError?: string;
+        }>;
         imageGenerationMediaRef?: string;
         imageGenerationPrompt?: string;
         imageGenerationUsedReference?: boolean;

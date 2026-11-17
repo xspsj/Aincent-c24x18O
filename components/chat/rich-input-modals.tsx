@@ -8,27 +8,86 @@ import { referenceFlagsToPhotoType, type PhotoType } from "@/lib/rich-message-pa
 
 // ── Photo Input Modal ─────────────────────────────
 
+/** 发送照片弹窗最多可一次选这么多张（对齐微信九宫格心智，同时控制 IndexedDB/内存压力） */
+export const PHOTO_INPUT_MAX_COUNT = 9;
+/** 发送前压缩：长边上限（手机屏幕上肉眼无损，体积比原图小一个量级） */
+const PHOTO_COMPRESS_MAX_EDGE = 1280;
+/** 发送前压缩：JPEG 质量（0.82 在清晰度与体积之间取得平衡） */
+const PHOTO_COMPRESS_QUALITY = 0.82;
+
+export type PhotoInputItem = { dataUrl: string };
+
+/**
+ * 等比压缩一张图片到 PHOTO_COMPRESS_MAX_EDGE 长边以内，转成 JPEG dataURL。
+ * 用 JPEG 而不是 WebP：部分 iOS Safari 版本 canvas.toBlob("image/webp") 不稳定，
+ * JPEG 兼容性最好，压缩率也足够（9 张原图合计可能上百 MB，压完通常几 MB）。
+ * 压缩失败（如损坏文件）时回退原始 dataURL，不让单张坏图卡住整次发送。
+ */
+function compressImageFile(file: File): Promise<string> {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const original = reader.result as string;
+            const img = new Image();
+            img.onload = () => {
+                const { width, height } = img;
+                const scale = Math.min(1, PHOTO_COMPRESS_MAX_EDGE / Math.max(width, height));
+                const targetW = Math.max(1, Math.round(width * scale));
+                const targetH = Math.max(1, Math.round(height * scale));
+                try {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = targetW;
+                    canvas.height = targetH;
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) { resolve(original); return; }
+                    ctx.drawImage(img, 0, 0, targetW, targetH);
+                    resolve(canvas.toDataURL("image/jpeg", PHOTO_COMPRESS_QUALITY));
+                } catch {
+                    resolve(original);
+                }
+            };
+            img.onerror = () => resolve(original);
+            img.src = original;
+        };
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(file);
+    });
+}
+
 interface PhotoInputModalProps {
-    onSend: (description: string, imageDataUrl?: string) => void;
+    /** merge=true 时一条消息合并展示（层叠卡堆）；false 时按张拆成多条独立消息逐条发出 */
+    onSend: (items: PhotoInputItem[], merge: boolean) => void;
     onClose: () => void;
 }
 
 export function PhotoInputModal({ onSend, onClose }: PhotoInputModalProps) {
-    const [desc, setDesc] = useState("");
-    const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+    const [images, setImages] = useState<string[]>([]);
+    const [merge, setMerge] = useState(true);
+    const [compressing, setCompressing] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            setImageDataUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = ""; // 允许连续选同一批文件触发 onChange
+        if (files.length === 0) return;
+        const room = PHOTO_INPUT_MAX_COUNT - images.length;
+        const picked = files.slice(0, Math.max(0, room));
+        if (picked.length === 0) return;
+        setCompressing(true);
+        try {
+            const compressed = await Promise.all(picked.map(compressImageFile));
+            setImages(prev => [...prev, ...compressed.filter(Boolean)].slice(0, PHOTO_INPUT_MAX_COUNT));
+        } finally {
+            setCompressing(false);
+        }
     };
 
-    const canSend = !!imageDataUrl;
+    const removeImage = (index: number) => {
+        setImages(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const canSend = images.length > 0 && !compressing;
+    const showMergeOption = images.length >= 2;
 
     return (
         <div className="modal-overlay" onClick={onClose}>
@@ -37,45 +96,68 @@ export function PhotoInputModal({ onSend, onClose }: PhotoInputModalProps) {
                 className="modal-dialog"
             >
                 <div className="ts-16 font-semibold text-center text-[var(--c-text)]">发送照片</div>
-                <div
-                    className="w-full rounded-xl flex items-center justify-center ui-placeholder-gradient overflow-hidden cursor-pointer relative"
-                    style={{ minHeight: imageDataUrl ? "auto" : "120px" }}
-                    onClick={() => fileInputRef.current?.click()}
-                >
-                    {imageDataUrl ? (
-                        <img
-                            src={imageDataUrl}
-                            alt="preview"
-                            className="w-full h-auto rounded-xl"
-                            style={{ maxHeight: "240px", objectFit: "contain" }}
-                        />
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-6">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--c-icon)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <line x1="12" y1="5" x2="12" y2="19" />
-                                <line x1="5" y1="12" x2="19" y2="12" />
-                            </svg>
-                            <span className="ts-12 text-[var(--c-icon)]">点击上传图片</span>
+                <div className="photo-input-grid">
+                    {images.map((url, index) => (
+                        <div className="photo-input-grid-cell" key={`${index}-${url.length}`}>
+                            <img src={url} alt="" />
+                            <button
+                                type="button"
+                                className="photo-input-grid-remove"
+                                onClick={() => removeImage(index)}
+                                aria-label="移除这张照片"
+                            >
+                                ×
+                            </button>
                         </div>
+                    ))}
+                    {images.length < PHOTO_INPUT_MAX_COUNT && (
+                        <button
+                            type="button"
+                            className="photo-input-grid-add"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={compressing}
+                            aria-label="添加照片"
+                        >
+                            {compressing ? (
+                                <span className="photo-input-grid-add-loading" aria-hidden="true" />
+                            ) : (
+                                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--c-icon)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19" />
+                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                </svg>
+                            )}
+                        </button>
                     )}
                     <input
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
+                        multiple
                         className="hidden"
                         onChange={handleFileChange}
                     />
                 </div>
+                {images.length > 0 && (
+                    <div className="ts-12 text-[var(--c-icon)] text-center">
+                        已选 {images.length}/{PHOTO_INPUT_MAX_COUNT} 张
+                    </div>
+                )}
+                {showMergeOption && (
+                    <label className="flex items-center gap-2 ts-13 text-[var(--c-text)] cursor-pointer">
+                        <input type="checkbox" checked={merge} onChange={e => setMerge(e.target.checked)} />
+                        <span>发送后合并展示</span>
+                    </label>
+                )}
                 <div className="flex gap-3 w-full">
                     <button
                         onClick={onClose}
                         className="ui-btn ui-btn-ghost ui-btn-bordered-ghost flex-1"
                     >取消</button>
                     <button
-                        onClick={() => { if (canSend) onSend(desc.trim(), imageDataUrl!); }}
+                        onClick={() => { if (canSend) onSend(images.map(dataUrl => ({ dataUrl })), images.length >= 2 && merge); }}
                         disabled={!canSend}
                         className="ui-btn ui-btn-success flex-1"
-                    >发送</button>
+                    >发送{images.length > 1 ? ` (${images.length})` : ""}</button>
                 </div>
             </div>
         </div>

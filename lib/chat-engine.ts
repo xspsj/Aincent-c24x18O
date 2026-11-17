@@ -287,6 +287,22 @@ export async function prepareVisionPromptImageMessage(msg: ChatMessage): Promise
         return;
     }
 
+    // 合并图集：组内每一张图都要转成真实可用的 dataURL，不只是封面——
+    // 否则模型只能看到第一张，多选合并发图就失去了意义。
+    if (msg.mediaType === "image" && msg.mediaData?.images && msg.mediaData.images.length >= 2) {
+        const resolvedImages = await Promise.all(msg.mediaData.images.map(async img => {
+            if (!img.url) return img;
+            const result = await resolveVisionImageRefForApi(img.url);
+            if ("url" in result) return { ...img, url: result.url };
+            if ("drop" in result) return { ...img, url: undefined };
+            return img;
+        }));
+        msg.mediaData = { ...msg.mediaData, images: resolvedImages };
+        // mediaUrl 是第一张的兜底（未升级的单图渲染/消费路径用），同步替换成解析后的结果
+        if (resolvedImages[0]?.url) msg.mediaUrl = resolvedImages[0].url;
+        return;
+    }
+
     if (!isVisionPromptImageMessage(msg) || !msg.mediaUrl) return;
     const result = await resolveVisionImageRefForApi(msg.mediaUrl);
     if ("url" in result) {
@@ -303,9 +319,11 @@ function isVisionPromptImageMessage(msg: ChatMessage): boolean {
 }
 
 function hasVisionPromptImageData(msg: ChatMessage): boolean {
-    return msg.mediaType === "sticker"
-        ? Boolean(msg.mediaData?.stickerUrl)
-        : Boolean(msg.mediaUrl);
+    if (msg.mediaType === "sticker") return Boolean(msg.mediaData?.stickerUrl);
+    if (msg.mediaType === "image" && msg.mediaData?.images && msg.mediaData.images.length >= 2) {
+        return msg.mediaData.images.some(img => Boolean(img.url));
+    }
+    return Boolean(msg.mediaUrl);
 }
 
 function stripVisionPromptImageData(msg: ChatMessage): ChatMessage {
@@ -315,6 +333,16 @@ function stripVisionPromptImageData(msg: ChatMessage): ChatMessage {
             mediaData: {
                 ...(msg.mediaData ?? {}),
                 stickerUrl: undefined,
+            },
+        };
+    }
+    if (msg.mediaType === "image" && msg.mediaData?.images && msg.mediaData.images.length >= 2) {
+        return {
+            ...msg,
+            mediaUrl: undefined,
+            mediaData: {
+                ...msg.mediaData,
+                images: msg.mediaData.images.map(img => ({ ...img, url: undefined })),
             },
         };
     }

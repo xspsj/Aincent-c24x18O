@@ -134,7 +134,7 @@ type ChatMediaClass = "image" | "voice" | "file";
 function chatMediaClass(message: ChatMessage): ChatMediaClass | null {
   if (isChatXiaohongshuShareImage(message)) return "image";
   if (isChatImageMessage(message)) {
-    return message.mediaUrl || message.mediaData?.imageGenerationMediaRef ? "image" : null;
+    return message.mediaUrl || message.mediaData?.imageGenerationMediaRef || message.mediaData?.images?.length ? "image" : null;
   }
   if (!message.mediaUrl) return null;
   const fileType = message.mediaData?.fileType;
@@ -165,6 +165,11 @@ function chatMessageMediaBytes(
   let bytes = 0;
   bytes += mediaRefBytes(message.mediaUrl, seen, mediaBytesById);
   bytes += mediaRefBytes(message.mediaData?.imageGenerationMediaRef, seen, mediaBytesById);
+  // 合并图集：封面之外每一张图各自占独立引用，必须一并统计，否则「聊天图片」
+  // 占用显示的字节数会比实际小，清理后也会发现组内其余几张从未被释放。
+  for (const img of message.mediaData?.images ?? []) {
+    bytes += mediaRefBytes(img.url, seen, mediaBytesById);
+  }
   const assetId = message.mediaData?.xiaohongshuImageAssetId;
   if (assetId) bytes += themeBytesById.get(assetId) ?? 0;
   return bytes;

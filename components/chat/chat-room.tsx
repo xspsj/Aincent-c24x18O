@@ -6,6 +6,7 @@ import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXm
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, photoTypeToReferenceFlags, type ParsedMessagePart } from "@/lib/rich-message-parser";
+import { extractPhotoRecognition } from "@/lib/photo-recognition-protocol";
 import { isKnownStickerLabel } from "@/lib/sticker-data";
 import { translateReasoningText } from "@/lib/reasoning-translate";
 import { MessageBubble, MediaDetailModal, prewarmStickerCache, BilingualTextBlock, isStandaloneHtmlPreviewContent, normalizeTextBubbleContent } from "./message-bubble";
@@ -97,6 +98,8 @@ import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
 import { addFavorite, addCombinedFavorite } from "@/lib/chat-favorites-storage";
 import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
+import { storeMediaBase64 } from "@/lib/media-cache-storage";
+import type { PhotoInputItem } from "@/components/chat/rich-input-modals";
 
 // ── Call system message detection ──────────────────────────
 // Call messages are stored with user/assistant role for correct prompt alternation,
@@ -2478,6 +2481,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             if (!(session.participantIds || []).includes(r.characterId)) continue;
             if (isGroupMuted(session, r.characterId)) continue;
             const responseBatchId = createResponseBatchId();
+            applyPhotoRecognitionMemory(r.responseText);
             const { parts: rawParts, stateValues, freshStateValues, statusPanel, innerMonologue } = parseAIResponse(r.responseText, getCurrentStateForCharacter(r.characterId));
             const parts = stripInvalidStickerParts(rawParts, r.characterId);
             let attachedState = false;
@@ -2983,6 +2987,40 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         }
     };
 
+    /**
+     * 识图记忆回写：角色回复里若带 [识图:描述1|描述2|...] 标记，说明它刚才"看到"了
+     * 用户发的真实照片并顺手写下了描述。这里把标记解析出来，静默回写进对应照片消息的
+     * mediaData.label（单图）/ mediaData.images[].label（合并图集），取代原来的空占位。
+     *
+     * 图片本体还在时 AI 感知始终以直接看图为准，这条描述只在图片以后被清理后作为
+     * 文字记忆兜底——所以这里只是"事后补全记忆"，不影响当前这轮回复的显示内容
+     * （标记本身已经在 parseAIResponse 里被剥离，不会出现在聊天气泡里）。
+     */
+    const applyPhotoRecognitionMemory = (rawText: string) => {
+        const result = extractPhotoRecognition(rawText);
+        if (!result) return;
+
+        const freshMsgs = loadChatMessages(session.id);
+        const targetMsg = [...freshMsgs].reverse().find(m =>
+            m.role === "user" && m.mediaType === "image" && !m.mediaData?.imageGenerationStatus,
+        );
+        if (!targetMsg) return;
+
+        const images = targetMsg.mediaData?.images;
+        if (images && images.length >= 2) {
+            // 合并图集：按顺序对应每张图的描述，标记给的张数和实际张数不一致时按较短的一边对齐
+            const nextImages = images.map((img, index) => {
+                const desc = result.descriptions[index];
+                return desc ? { ...img, label: desc } : img;
+            });
+            updateMessageMediaData(targetMsg.id, { ...targetMsg.mediaData, images: nextImages });
+        } else {
+            const desc = result.descriptions[0];
+            if (!desc) return;
+            updateMessageMediaData(targetMsg.id, { ...targetMsg.mediaData, label: desc });
+        }
+    };
+
     // Helper: Split AI response by \n\n into multiple messages (online chat mode)
     // Uses shared parseAIResponse for rich-media support.
     // Returns { hasVisible, stateValues, hasDecline } — hasVisible is false if the AI chose [静默].
@@ -3003,6 +3041,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             ? getLatestStateValues(session.id)
             : getLatestCharacterStateValues(session.contactId);
 
+        applyPhotoRecognitionMemory(aiResponseText);
         const { parts: rawParts, stateValues, freshStateValues, statusPanel, innerMonologue } = parseAIResponse(aiResponseText, previousState);
         const parts = stripInvalidStickerParts(rawParts);
         throwIfGenerationStopped(options);
@@ -3732,6 +3771,45 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         setMessages(prev => [...prev, newMsg]);
         setPendingGenerate(true);
         return true;
+    };
+
+    /**
+     * 发送照片弹窗的多图入口：把每张 dataURL 转存成 media-store:// 引用
+     * （避免超大 dataURL 直接进 IndexedDB 主表），再按 merge 决定：
+     * - merge=false 或只有 1 张：逐张发成独立消息，行为等同连续手动发多次单图
+     * - merge=true 且 ≥2 张：发成一条消息，mediaData.images 存全部图片引用，
+     *   mediaUrl/label 仍保留第一张，未升级的渲染路径回退显示第一张也不会裂图
+     */
+    const sendPhotoMessages = async (items: PhotoInputItem[], merge: boolean): Promise<void> => {
+        if (items.length === 0) return;
+        let refs: string[];
+        try {
+            refs = await Promise.all(items.map(async item => {
+                const base64 = item.dataUrl.includes(",") ? item.dataUrl.slice(item.dataUrl.indexOf(",") + 1) : item.dataUrl;
+                const stored = await storeMediaBase64(base64, "image/jpeg");
+                return stored.ref;
+            }));
+        } catch {
+            showChatToast("图片处理失败，请重试");
+            return;
+        }
+
+        if (!merge || refs.length === 1) {
+            for (const ref of refs) {
+                if (!sendRichMessage("image", { label: "" }, "", ref)) break;
+            }
+            return;
+        }
+
+        sendRichMessage(
+            "image",
+            {
+                label: "",
+                images: refs.map(ref => ({ url: ref, label: "", photoType: "scene" as const })),
+            },
+            "",
+            refs[0],
+        );
     };
 
     const sendSystemInstruction = (content: string): boolean => {
@@ -6778,7 +6856,7 @@ function formatCallDurationDisplay(durationStr: string): string {
             )}
             {richModal === "photo" && (
                 <PhotoInputModal
-                    onSend={(desc, imageDataUrl) => { setRichModal(null); sendRichMessage("image", { label: desc }, "", imageDataUrl); }}
+                    onSend={(items, merge) => { setRichModal(null); void sendPhotoMessages(items, merge); }}
                     onClose={() => setRichModal(null)}
                 />
             )}
