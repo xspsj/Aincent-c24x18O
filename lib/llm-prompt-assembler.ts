@@ -1076,6 +1076,26 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
         });
     }
 
+    // 真实照片识图描述：用户发了真实照片（非角色生图）时，要求角色顺手把看到的内容写成
+    // 一句话描述，系统会提取后静默回写进这条照片消息的记忆（取代原来的空占位"图片"）。
+    // 图片本体还在时，AI 的感知始终以直接看图为准；这条描述只在图片以后被清理（如用户清理
+    // 存储空间）后，作为唯一能留存下来的文字记忆兜底，让角色以后还记得"当时收到了什么样的照片"。
+    const recentRealUserPhotoMessages = history.slice(-5).filter(m =>
+        m.role === "user" && m.mediaType === "image" && !m.mediaData?.imageGenerationStatus,
+    );
+    if (input.enableVision && recentRealUserPhotoMessages.length > 0) {
+        const hasMergedGroup = recentRealUserPhotoMessages.some(m => (m.mediaData?.images?.length ?? 0) >= 2);
+        blocks.push({
+            text: hasMergedGroup
+                ? "【系统动作提醒】对方刚发来的照片里有一组合并发送的多张图片，你已经看到了全部图片内容。请在回复末尾附带：[识图:第一张描述|第二张描述|...]（按图片顺序，每张一句话简短描述，用 | 分隔，不要加序号文字）。这不是对话内容，系统会静默提取用于记忆，不会展示给对方。"
+                : "【系统动作提醒】对方刚发来一张真实照片，你已经看到了图片内容。请在回复末尾附带：[识图:一句话简短描述]（描述你看到的画面）。这不是对话内容，系统会静默提取用于记忆，不会展示给对方。",
+            role: "system",
+            depth: 0,
+            order: 9998,
+            marker: "photo-recognition-memory-rule",
+        });
+    }
+
     // --- Sort: depth descending, then order ascending ---
     blocks.sort((a, b) => {
         if (b.depth !== a.depth) return b.depth - a.depth;
@@ -2256,6 +2276,23 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
                 fromHistory: true,
                 imageUrl,
             });
+        });
+    }
+
+    // 真实照片识图描述（群聊同单聊规则，见 assemblePromptPayload 的同名注释）
+    const groupRecentRealUserPhotoMessages = history.slice(-5).filter(m =>
+        m.role === "user" && m.mediaType === "image" && !m.mediaData?.imageGenerationStatus,
+    );
+    if (input.enableVision && groupRecentRealUserPhotoMessages.length > 0) {
+        const groupHasMergedPhoto = groupRecentRealUserPhotoMessages.some(m => (m.mediaData?.images?.length ?? 0) >= 2);
+        blocks.push({
+            text: groupHasMergedPhoto
+                ? "【系统动作提醒】群里刚有人发来一组合并发送的多张图片，你已经看到了全部图片内容。请在你的回复末尾附带：[识图:第一张描述|第二张描述|...]（按图片顺序，每张一句话简短描述，用 | 分隔，不要加序号文字）。这不是对话内容，系统会静默提取用于记忆，不会展示给群成员。"
+                : "【系统动作提醒】群里刚有人发来一张真实照片，你已经看到了图片内容。请在你的回复末尾附带：[识图:一句话简短描述]（描述你看到的画面）。这不是对话内容，系统会静默提取用于记忆，不会展示给群成员。",
+            role: "system",
+            depth: 0,
+            order: 9998,
+            marker: "photo-recognition-memory-rule",
         });
     }
 

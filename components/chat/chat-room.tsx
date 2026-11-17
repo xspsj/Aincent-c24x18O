@@ -6,6 +6,7 @@ import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXm
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, photoTypeToReferenceFlags, type ParsedMessagePart } from "@/lib/rich-message-parser";
+import { extractPhotoRecognition } from "@/lib/photo-recognition-protocol";
 import { isKnownStickerLabel } from "@/lib/sticker-data";
 import { translateReasoningText } from "@/lib/reasoning-translate";
 import { MessageBubble, MediaDetailModal, prewarmStickerCache, BilingualTextBlock, isStandaloneHtmlPreviewContent, normalizeTextBubbleContent } from "./message-bubble";
@@ -2480,6 +2481,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             if (!(session.participantIds || []).includes(r.characterId)) continue;
             if (isGroupMuted(session, r.characterId)) continue;
             const responseBatchId = createResponseBatchId();
+            applyPhotoRecognitionMemory(r.responseText);
             const { parts: rawParts, stateValues, freshStateValues, statusPanel, innerMonologue } = parseAIResponse(r.responseText, getCurrentStateForCharacter(r.characterId));
             const parts = stripInvalidStickerParts(rawParts, r.characterId);
             let attachedState = false;
@@ -2985,6 +2987,40 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         }
     };
 
+    /**
+     * 识图记忆回写：角色回复里若带 [识图:描述1|描述2|...] 标记，说明它刚才"看到"了
+     * 用户发的真实照片并顺手写下了描述。这里把标记解析出来，静默回写进对应照片消息的
+     * mediaData.label（单图）/ mediaData.images[].label（合并图集），取代原来的空占位。
+     *
+     * 图片本体还在时 AI 感知始终以直接看图为准，这条描述只在图片以后被清理后作为
+     * 文字记忆兜底——所以这里只是"事后补全记忆"，不影响当前这轮回复的显示内容
+     * （标记本身已经在 parseAIResponse 里被剥离，不会出现在聊天气泡里）。
+     */
+    const applyPhotoRecognitionMemory = (rawText: string) => {
+        const result = extractPhotoRecognition(rawText);
+        if (!result) return;
+
+        const freshMsgs = loadChatMessages(session.id);
+        const targetMsg = [...freshMsgs].reverse().find(m =>
+            m.role === "user" && m.mediaType === "image" && !m.mediaData?.imageGenerationStatus,
+        );
+        if (!targetMsg) return;
+
+        const images = targetMsg.mediaData?.images;
+        if (images && images.length >= 2) {
+            // 合并图集：按顺序对应每张图的描述，标记给的张数和实际张数不一致时按较短的一边对齐
+            const nextImages = images.map((img, index) => {
+                const desc = result.descriptions[index];
+                return desc ? { ...img, label: desc } : img;
+            });
+            updateMessageMediaData(targetMsg.id, { ...targetMsg.mediaData, images: nextImages });
+        } else {
+            const desc = result.descriptions[0];
+            if (!desc) return;
+            updateMessageMediaData(targetMsg.id, { ...targetMsg.mediaData, label: desc });
+        }
+    };
+
     // Helper: Split AI response by \n\n into multiple messages (online chat mode)
     // Uses shared parseAIResponse for rich-media support.
     // Returns { hasVisible, stateValues, hasDecline } — hasVisible is false if the AI chose [静默].
@@ -3005,6 +3041,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             ? getLatestStateValues(session.id)
             : getLatestCharacterStateValues(session.contactId);
 
+        applyPhotoRecognitionMemory(aiResponseText);
         const { parts: rawParts, stateValues, freshStateValues, statusPanel, innerMonologue } = parseAIResponse(aiResponseText, previousState);
         const parts = stripInvalidStickerParts(rawParts);
         throwIfGenerationStopped(options);
