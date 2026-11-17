@@ -1569,8 +1569,8 @@ function ImageGroupStackLayer({ rawUrl, depth, onClick }: { rawUrl?: string; dep
 }
 
 /** 展开瀑布流里的一张大图：复用 ImageBubble 的点击预览习惯，点开全屏查看 */
-function ImageGroupExpandedItem({ rawUrl }: { rawUrl?: string }) {
-    const { url } = useResolvedImageUrl(rawUrl);
+function ImageGroupExpandedItem({ images, index }: { images: NonNullable<ChatMessage["mediaData"]>["images"]; index: number }) {
+    const { url } = useResolvedImageUrl(images?.[index]?.url);
     const [showPreview, setShowPreview] = useState(false);
     return (
         <>
@@ -1581,8 +1581,9 @@ function ImageGroupExpandedItem({ rawUrl }: { rawUrl?: string }) {
                 {url ? <img src={url} alt="" /> : <div className="chat-photo-group-layer-placeholder" />}
             </div>
             {showPreview && (
-                <MediaPreviewOverlay
-                    imageUrl={url || undefined}
+                <ImageGroupFullscreenPreview
+                    images={images}
+                    startIndex={index}
                     onClose={() => setShowPreview(false)}
                 />
             )}
@@ -1591,8 +1592,60 @@ function ImageGroupExpandedItem({ rawUrl }: { rawUrl?: string }) {
 }
 
 /**
- * 合并图集气泡：折叠态为层叠卡堆（封面 + 最多露 2 张压边 + "展开 N" 胶囊），
- * 支持左右滑切换当前封面；展开态为纵向瀑布流，顶部"收起"按钮。
+ * 全屏预览一组图片：从点击时的那一张开始，支持继续左右滑动切换组内其它图片，
+ * 不再是看完一张就要关掉重新点下一张。复用 MediaPreviewOverlay 的保存/样式习惯，
+ * 但轮播本体独立实现（MediaPreviewOverlay 本身只认单张图）。
+ */
+function ImageGroupFullscreenPreview({
+    images,
+    startIndex,
+    onClose,
+}: {
+    images: NonNullable<ChatMessage["mediaData"]>["images"];
+    startIndex: number;
+    onClose: () => void;
+}) {
+    const list = images || [];
+    const [index, setIndex] = useState(Math.min(Math.max(startIndex, 0), Math.max(list.length - 1, 0)));
+    const touchStartXRef = useRef<number | null>(null);
+    const { url } = useResolvedImageUrl(list[index]?.url);
+
+    if (typeof document === "undefined" || list.length === 0) return null;
+
+    const canPrev = index > 0;
+    const canNext = index < list.length - 1;
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        touchStartXRef.current = e.touches[0]?.clientX ?? null;
+    };
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        const startX = touchStartXRef.current;
+        touchStartXRef.current = null;
+        if (startX === null) return;
+        const endX = e.changedTouches[0]?.clientX ?? startX;
+        const dx = endX - startX;
+        const SWIPE_THRESHOLD = 32;
+        if (dx <= -SWIPE_THRESHOLD && canNext) setIndex(i => i + 1); // 左滑 → 下一张
+        else if (dx >= SWIPE_THRESHOLD && canPrev) setIndex(i => i - 1); // 右滑 → 上一张
+    };
+
+    return createPortal(
+        <div
+            className="chat-photo-group-fullscreen"
+            onClick={onClose}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
+            {url && <img src={url} alt="" onClick={e => e.stopPropagation()} />}
+            <div className="chat-photo-group-fullscreen-counter">{index + 1} / {list.length}</div>
+        </div>,
+        document.body,
+    );
+}
+
+/**
+ * 合并图集气泡：折叠态为层叠卡堆（封面 + 最多露 2 张压边 + "展开 N" 胶囊，
+ * 按钮位于图片左侧垂直居中）；展开态为纵向瀑布流，"收起"按钮位于第一张图左侧垂直居中。
  * 浏览到第几张 / 是否展开都是组件内瞬态（useState），不写回存储——
  * 退出聊天室或刷新重进后组件重新挂载，自动复位到折叠态、第 1 张在最前面。
  */
@@ -1627,16 +1680,20 @@ function ImageGroupBubble({ msg }: { msg: ChatMessage; characterId?: string }) {
     if (expanded) {
         return (
             <div className="chat-photo-group-expanded">
-                <button
-                    type="button"
-                    className="chat-photo-group-collapse-btn"
-                    onClick={e => { e.stopPropagation(); setExpanded(false); setActiveIndex(0); }}
-                >
-                    收起
-                </button>
                 <div className="chat-photo-group-expanded-list">
                     {images.map((img, index) => (
-                        <ImageGroupExpandedItem key={`${msg.id}-${index}`} rawUrl={img.url} />
+                        <div className="chat-photo-group-expanded-item-wrap" key={`${msg.id}-${index}`}>
+                            {index === 0 && (
+                                <button
+                                    type="button"
+                                    className="chat-photo-group-collapse-btn"
+                                    onClick={e => { e.stopPropagation(); setExpanded(false); setActiveIndex(0); }}
+                                >
+                                    收起
+                                </button>
+                            )}
+                            <ImageGroupExpandedItem images={images} index={index} />
+                        </div>
                     ))}
                 </div>
             </div>
@@ -1666,17 +1723,18 @@ function ImageGroupBubble({ msg }: { msg: ChatMessage; characterId?: string }) {
                     depth={0}
                     onClick={() => { if (activeUrl) setShowActivePreview(true); }}
                 />
+                <button
+                    type="button"
+                    className="chat-photo-group-expand-btn"
+                    onClick={e => { e.stopPropagation(); setExpanded(true); }}
+                >
+                    展开 {images.length}
+                </button>
             </div>
-            <button
-                type="button"
-                className="chat-photo-group-expand-btn"
-                onClick={e => { e.stopPropagation(); setExpanded(true); }}
-            >
-                展开 {images.length}
-            </button>
             {showActivePreview && (
-                <MediaPreviewOverlay
-                    imageUrl={activeUrl || undefined}
+                <ImageGroupFullscreenPreview
+                    images={images}
+                    startIndex={activeIndex}
                     onClose={() => setShowActivePreview(false)}
                 />
             )}
