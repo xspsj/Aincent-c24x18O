@@ -7385,3 +7385,95 @@
 @keyframes photo-input-grid-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ══════════════════════════════════════════
+   合并图集气泡：折叠态层叠卡堆 + 展开瀑布流
+   ══════════════════════════════════════════ */
+.chat-photo-group-collapsed {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.chat-photo-group-stack {
+  position: relative;
+  width: 180px;
+  height: 240px;
+  touch-action: pan-y;
+}
+
+.chat-photo-group-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--c-input, rgba(0, 0, 0, 0.04));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  /* depth 0 = 封面（置顶，无偏移）；depth 1/2 = 压边层，依次向右下偏移并缩小露出边缘 */
+  transform: translate(calc(var(--photo-group-depth, 0) * 10px), calc(var(--photo-group-depth, 0) * -8px));
+  z-index: calc(10 - var(--photo-group-depth, 0));
+}
+
+.chat-photo-group-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.chat-photo-group-layer-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--c-input, rgba(0, 0, 0, 0.06));
+}
+
+.chat-photo-group-expand-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: calc(12px * var(--app-text-scale, 1));
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+
+.chat-photo-group-expanded {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 260px;
+}
+
+.chat-photo-group-collapse-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: calc(12px * var(--app-text-scale, 1));
+  background: var(--c-input, rgba(0, 0, 0, 0.08));
+  color: var(--c-text, inherit);
+  cursor: pointer;
+}
+
+.chat-photo-group-expanded-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.chat-photo-group-expanded-item {
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--c-input, rgba(0, 0, 0, 0.04));
+}
+
+.chat-photo-group-expanded-item img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
