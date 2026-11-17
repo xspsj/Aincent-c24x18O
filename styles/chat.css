@@ -7401,19 +7401,41 @@
   width: 180px;
   height: 240px;
   touch-action: pan-y;
+  /* 独立层叠上下文：卡堆内部无论用多大 z-index 做层次，都不可能跑到外部的
+     聊天室顶栏、头像之类元素前面——上一版只调小 z-index 数值治标不治本 */
+  isolation: isolate;
 }
 
 .chat-photo-group-layer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100%;
+  margin-left: -50%;
   border-radius: 4px;
   overflow: hidden;
   background: var(--c-input, rgba(0, 0, 0, 0.04));
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
-  /* depth 0 = 封面（置顶，无偏移）；depth 1/2 = 压边层，只往右水平偏移露出边缘，
-     不做垂直位移——避免卡堆视觉溢出容器盖住上方的聊天室顶栏 */
-  transform: translateX(calc(var(--photo-group-depth, 0) * 10px));
-  z-index: calc(10 - var(--photo-group-depth, 0));
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+/* 中心张：封面，原尺寸，置顶，可点击 */
+.chat-photo-group-layer[data-side="center"] {
+  transform: translateX(0) scale(1);
+  z-index: 3;
+}
+
+/* 左侧：露上一张的左边缘，整体缩小并退到封面后面 */
+.chat-photo-group-layer[data-side="left"] {
+  transform: translateX(-14px) scale(0.92);
+  z-index: 1;
+}
+
+/* 右侧：露下一张的右边缘，整体缩小并退到封面后面 */
+.chat-photo-group-layer[data-side="right"] {
+  transform: translateX(14px) scale(0.92);
+  z-index: 2;
 }
 
 .chat-photo-group-layer img {

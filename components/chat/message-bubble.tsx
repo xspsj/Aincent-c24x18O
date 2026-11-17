@@ -1554,14 +1554,14 @@ function useResolvedImageUrl(rawUrl?: string): { url: string; expired: boolean }
     return { url, expired };
 }
 
-/** 卡堆里的一张图（封面 + 最多两张压边）：只负责解析 URL 并渲染一个 <img>，不参与手势 */
-function ImageGroupStackLayer({ rawUrl, depth, onClick }: { rawUrl?: string; depth: number; onClick?: () => void }) {
+/** 卡堆里的一张图：中心张是封面（原尺寸、可点击）；左右两侧各露一张上/下张的边缘（略缩小、退后） */
+function ImageGroupStackLayer({ rawUrl, side, onClick }: { rawUrl?: string; side: "left" | "center" | "right"; onClick?: () => void }) {
     const { url } = useResolvedImageUrl(rawUrl);
     return (
         <div
             className="chat-photo-group-layer"
-            style={{ "--photo-group-depth": depth } as React.CSSProperties}
-            onClick={depth === 0 ? onClick : undefined}
+            data-side={side}
+            onClick={side === "center" ? onClick : undefined}
         >
             {url ? <img src={url} alt="" /> : <div className="chat-photo-group-layer-placeholder" />}
         </div>
@@ -1700,8 +1700,10 @@ function ImageGroupBubble({ msg }: { msg: ChatMessage; characterId?: string }) {
         );
     }
 
-    // 折叠态：只渲染当前张 + 最多两张压边（无论图集多大，视觉与 DOM 层数恒定为 3）
-    const trailingDepths = [1, 2].filter(offset => activeIndex + offset < images.length);
+    // 折叠态：以当前张为中心左右各露一张边（左边露上一张、右边露下一张）。
+    // 到边界时对应一侧没有牌可露，自然只剩一边——与真实微信的卡堆效果一致。
+    const leftOffset = canPrev ? -1 : null;
+    const rightOffset = canNext ? 1 : null;
 
     return (
         <div className="chat-photo-group-collapsed">
@@ -1710,17 +1712,24 @@ function ImageGroupBubble({ msg }: { msg: ChatMessage; characterId?: string }) {
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
             >
-                {trailingDepths.slice().reverse().map(offset => (
+                {leftOffset !== null && (
                     <ImageGroupStackLayer
-                        key={`${msg.id}-trail-${activeIndex + offset}`}
-                        rawUrl={images[activeIndex + offset]?.url}
-                        depth={offset}
+                        key={`${msg.id}-side-${activeIndex + leftOffset}`}
+                        rawUrl={images[activeIndex + leftOffset]?.url}
+                        side="left"
                     />
-                ))}
+                )}
+                {rightOffset !== null && (
+                    <ImageGroupStackLayer
+                        key={`${msg.id}-side-${activeIndex + rightOffset}`}
+                        rawUrl={images[activeIndex + rightOffset]?.url}
+                        side="right"
+                    />
+                )}
                 <ImageGroupStackLayer
                     key={`${msg.id}-cover-${activeIndex}`}
                     rawUrl={activeRawUrl}
-                    depth={0}
+                    side="center"
                     onClick={() => { if (activeUrl) setShowActivePreview(true); }}
                 />
                 <button
