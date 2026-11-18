@@ -1625,7 +1625,20 @@ export function ChatSettingsPanel({
                     onConfirm={() => {
                         const nextBlocked = !isBlocked;
                         setIsBlocked(nextBlocked);
-                        updateSession({ isBlacklisted: nextBlocked });
+                        const nowIso = new Date().toISOString();
+                        const periods = [...(session.blacklistPeriods || [])];
+                        if (nextBlocked) {
+                            // 拉黑：开启新区间
+                            periods.push({ start: nowIso });
+                        } else if (periods.length > 0 && !periods[periods.length - 1].end) {
+                            // 移出黑名单：关闭最后一个未结束的区间，历史区间保持不变
+                            periods[periods.length - 1] = { ...periods[periods.length - 1], end: nowIso };
+                        }
+                        updateSession({
+                            isBlacklisted: nextBlocked,
+                            blacklistedAt: nextBlocked ? nowIso : session.blacklistedAt,
+                            blacklistPeriods: periods,
+                        });
                         setShowConfirmBlock(false);
                     }}
                     onCancel={() => setShowConfirmBlock(false)}

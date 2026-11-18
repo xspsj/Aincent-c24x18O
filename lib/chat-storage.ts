@@ -49,8 +49,18 @@ export type ChatSession = {
     voiceBackground?: string;
     /** 我方是否拉黑该角色 */
     isBlacklisted?: boolean;
+    /** 我方拉黑该角色的时间点（ISO）：配合 blacklistPeriods 判定历史消息是否该打拒收标 */
+    blacklistedAt?: string;
+    /** 我方拉黑该角色的历史区间列表：每次拉黑/移出黑名单都会追加一段 [start, end)，
+     *  end 为空代表当前仍处于拉黑中。只有落在某个区间内的对方消息才标记拒收，
+     *  这样移出黑名单后，拉黑期间产生的历史消息仍保留标记，不会被抹掉。 */
+    blacklistPeriods?: { start: string; end?: string }[];
     /** 角色是否拉黑我方 */
     isBlockedByChar?: boolean;
+    /** 角色拉黑我方的时间点（ISO） */
+    blockedByCharAt?: string;
+    /** 角色拉黑我方的历史区间列表，语义同 blacklistPeriods */
+    blockedByCharPeriods?: { start: string; end?: string }[];
     customCSS?: string;
     isMuted?: boolean;
     bilingualTranslationEnabled?: boolean;

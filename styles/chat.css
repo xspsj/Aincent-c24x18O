@@ -161,14 +161,14 @@
 
 /* ══════════════════════════════════════════
    拉黑拒收：气泡旁红色感叹号 + 气泡下方居中拒收提示
-   .msg-blocked-icon   = 气泡旁的红色感叹号图标
+   .msg-blocked-icon   = 红色感叹号图标，贴在气泡远离头像的外侧（朝屏幕中间方向，与微信一致）
    .msg-blocked-notice = 气泡下方居中的拒收提示文字
+   感叹号挂在 chat-msg-content-wrap（气泡的父容器）上，不是气泡自身的子元素，
+   这样即使气泡自身设了 overflow:hidden 也不会被裁掉，也不会撑宽气泡。
    ══════════════════════════════════════════ */
-[data-ui="bubble-user"][data-blocked] {
-  margin-right: 26px;
-}
-[data-ui="bubble-bot"][data-blocked] {
-  margin-left: 26px;
+.chat-msg-wrapper,
+.chat-msg-content-wrap {
+  overflow: visible;
 }
 .msg-blocked-icon {
   position: absolute;
@@ -185,11 +185,13 @@
   flex-shrink: 0;
   pointer-events: none;
 }
-[data-ui="bubble-user"] .msg-blocked-icon {
+/* 我方气泡（靠右）：感叹号贴在气泡左侧，即远离"我"头像的外侧（屏幕中间方向） */
+[data-ui="content-wrap-user"] .msg-blocked-icon {
   right: 100%;
   margin-right: 6px;
 }
-[data-ui="bubble-bot"] .msg-blocked-icon {
+/* 对方气泡（靠左）：感叹号贴在气泡右侧，即远离对方头像的外侧（屏幕中间方向） */
+[data-ui="content-wrap-bot"] .msg-blocked-icon {
   left: 100%;
   margin-left: 6px;
 }

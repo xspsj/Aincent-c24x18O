@@ -122,6 +122,18 @@ function uiRole(msg: ChatMessage): string {
     return msg.role;
 }
 
+/** 拉黑拒收判定：消息创建时间是否落在某一段拉黑区间内（与当前是否仍处于拉黑状态无关，
+ *  这样移出黑名单后，拉黑期间产生的历史消息仍保留拒收标记，不会被抹掉）。 */
+function isInBlockedPeriod(periods: { start: string; end?: string }[] | undefined, createdAt: string): boolean {
+    if (!periods || periods.length === 0) return false;
+    const t = new Date(createdAt).getTime();
+    return periods.some(p => {
+        const startT = new Date(p.start).getTime();
+        const endT = p.end ? new Date(p.end).getTime() : Infinity;
+        return t >= startT && t < endT;
+    });
+}
+
 function isChatRoomElementVisible(element: HTMLElement | null): boolean {
     if (!element || !element.isConnected) return false;
     const rect = element.getBoundingClientRect();
@@ -6223,11 +6235,13 @@ function formatCallDurationDisplay(durationStr: string): string {
                         ...(isFavoriteSelected ? { "data-selected": "" } : {}),
                     } : {};
 
-                    // 拉黑拒收：我方拉黑对方时，对方发来的消息被拒收；对方拉黑我方时，我方发出的消息被拒收。
+                    // 拉黑拒收：消息创建时间落在某一段"拉黑区间"内就标记拒收，与当前是否仍处于
+                    // 拉黑状态无关——这样移出黑名单后，拉黑期间产生的历史消息仍保留标记，不会被抹掉，
+                    // 而拉回来之后新产生的消息（不落在任何区间内）不再标记。
                     // 单聊才有意义；群聊/系统消息/撤回/空气泡不参与判定（没有气泡可挂提示）。
                     const isBlockedBubble = !session.isGroup && uiRole(msg) !== "system" && !msg.isRetracted && !isEmptyBubble && (
-                        (msg.role !== "user" && session.isBlacklisted === true) ||
-                        (msg.role === "user" && session.isBlockedByChar === true)
+                        (msg.role !== "user" && isInBlockedPeriod(session.blacklistPeriods, msg.createdAt)) ||
+                        (msg.role === "user" && isInBlockedPeriod(session.blockedByCharPeriods, msg.createdAt))
                     );
 
                     return (
@@ -6403,9 +6417,16 @@ function formatCallDurationDisplay(durationStr: string): string {
                                             )
                                         )}
                                         {!isSilentThought && !isEmptyBubble && <div
-                                            className={`chat-msg-content-wrap flex flex-col min-w-0 max-w-[70%] ${isStandaloneHtmlPreview ? "chat-msg-content-wrap-html" : ""}`}
+                                            className={`chat-msg-content-wrap flex flex-col min-w-0 max-w-[70%] relative ${isStandaloneHtmlPreview ? "chat-msg-content-wrap-html" : ""}`}
+                                            data-ui={msg.role === "user" ? "content-wrap-user" : "content-wrap-bot"}
                                             {...(isStandaloneHtmlPreview ? { "data-html": "true" } : {})}
+                                            {...(isBlockedBubble ? { "data-blocked": "" } : {})}
                                         >
+                                            {isBlockedBubble && (
+                                                <span className="msg-blocked-icon" aria-label="消息被拒收" title="消息被拒收">
+                                                    <AlertCircle size={16} strokeWidth={2} />
+                                                </span>
+                                            )}
                                             {session.isGroup && msg.role !== "user" && (
                                                 <span className="chat-group-sender-name">{msg.senderName || ""}{renderGroupRoleBadge(msg.senderCharacterId)}</span>
                                             )}
@@ -6429,16 +6450,9 @@ function formatCallDurationDisplay(durationStr: string): string {
                                             data-ui={msg.role === "user" ? "bubble-user" : "bubble-bot"}
                                             data-msg-id={msg.id}
                                             {...(activeMessageId === msg.id ? { "data-active": "" } : {})}
-                                            {...(isBlockedBubble ? { "data-blocked": "" } : {})}
                                             >
                                             {/* Message Actions Popup */}
                                             {activeMessageId === msg.id && renderBubbleContextMenu(msg)}
-
-                                            {isBlockedBubble && (
-                                                <span className="msg-blocked-icon" aria-label="消息被拒收" title="消息被拒收">
-                                                    <AlertCircle size={16} strokeWidth={2} />
-                                                </span>
-                                            )}
 
                                             <MessageBubble
                                                 msg={renderMsg}
