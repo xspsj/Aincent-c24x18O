@@ -182,6 +182,10 @@
   border-radius: 50%;
   width: 20px;
   height: 20px;
+  font-size: 14px;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
   flex-shrink: 0;
   pointer-events: none;
 }

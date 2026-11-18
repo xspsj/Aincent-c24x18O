@@ -6423,9 +6423,7 @@ function formatCallDurationDisplay(durationStr: string): string {
                                             {...(isBlockedBubble ? { "data-blocked": "" } : {})}
                                         >
                                             {isBlockedBubble && (
-                                                <span className="msg-blocked-icon" aria-label="消息被拒收" title="消息被拒收">
-                                                    <AlertCircle size={16} strokeWidth={2} />
-                                                </span>
+                                                <span className="msg-blocked-icon" aria-label="消息被拒收" title="消息被拒收">!</span>
                                             )}
                                             {session.isGroup && msg.role !== "user" && (
                                                 <span className="chat-group-sender-name">{msg.senderName || ""}{renderGroupRoleBadge(msg.senderCharacterId)}</span>
