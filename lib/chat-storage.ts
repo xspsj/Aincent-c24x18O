@@ -47,7 +47,10 @@ export type ChatSession = {
     alias?: string;
     videoBackground?: string;
     voiceBackground?: string;
+    /** 我方是否拉黑该角色 */
     isBlacklisted?: boolean;
+    /** 角色是否拉黑我方 */
+    isBlockedByChar?: boolean;
     customCSS?: string;
     isMuted?: boolean;
     bilingualTranslationEnabled?: boolean;

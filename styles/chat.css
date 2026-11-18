@@ -159,6 +159,48 @@
   background: color-mix(in srgb, var(--c-icon-active) 8%, transparent);
 }
 
+/* ══════════════════════════════════════════
+   拉黑拒收：气泡旁红色感叹号 + 气泡下方居中拒收提示
+   .msg-blocked-icon   = 气泡旁的红色感叹号图标
+   .msg-blocked-notice = 气泡下方居中的拒收提示文字
+   ══════════════════════════════════════════ */
+[data-ui="bubble-user"][data-blocked] {
+  margin-right: 26px;
+}
+[data-ui="bubble-bot"][data-blocked] {
+  margin-left: 26px;
+}
+.msg-blocked-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: #FA5151;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+[data-ui="bubble-user"] .msg-blocked-icon {
+  right: 100%;
+  margin-right: 6px;
+}
+[data-ui="bubble-bot"] .msg-blocked-icon {
+  left: 100%;
+  margin-left: 6px;
+}
+.msg-blocked-notice {
+  font-size: calc(12px*var(--app-text-scale,1));
+  color: var(--c-text);
+  opacity: 0.6;
+  text-align: center;
+  padding: 2px 4px;
+}
+
 .chat-list-tabs {
   display: flex;
   gap: 10px;

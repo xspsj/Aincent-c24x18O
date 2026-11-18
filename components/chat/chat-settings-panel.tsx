@@ -45,7 +45,7 @@ import { downloadFile } from "@/lib/download-utils";
 import { getSchemes, saveScheme, deleteScheme, type CSSScheme } from "@/lib/css-scheme-storage";
 import { CustomStatusFrame } from "@/components/chat/custom-status-frame";
 import { KeyboardAutoSendDebounceItem } from "@/components/chat/keyboard-auto-send-debounce-item";
-import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, Star, UserCheck, type LucideIcon } from "lucide-react";
+import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserX, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, Star, UserCheck, type LucideIcon } from "lucide-react";
 import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
 import { ChatAvatarPanel } from "@/components/chat/chat-avatar-panel";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
@@ -417,6 +417,8 @@ export function ChatSettingsPanel({
     const [showConfirmClearTools, setShowConfirmClearTools] = useState(false);
     const [showConfirmDeleteSession, setShowConfirmDeleteSession] = useState(false);
     const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+    const [showConfirmBlock, setShowConfirmBlock] = useState(false);
+    const [isBlocked, setIsBlocked] = useState(session.isBlacklisted === true);
     const [editingAlias, setEditingAlias] = useState(false);
     const [editingBilingualPrompt, setEditingBilingualPrompt] = useState(false);
     const [editingCSS, setEditingCSS] = useState(false);
@@ -1276,10 +1278,18 @@ export function ChatSettingsPanel({
                 {/* Destructive Actions */}
                 <div className="menu-group">
                     {!session.isGroup && (
+                    <>
                     <button className="menu-item" onClick={() => setShowConfirmDelete(true)}>
                         <ChatInfoIcon icon={UserMinus} color="var(--c-danger)" />
                         <div className="menu-label-group"><span className="menu-label menu-label-danger">删除好友</span></div>
                     </button>
+                    <button className="menu-item" onClick={() => setShowConfirmBlock(true)}>
+                        <ChatInfoIcon icon={UserX} color="var(--c-danger)" />
+                        <div className="menu-label-group">
+                            <span className="menu-label menu-label-danger">{isBlocked ? "移出黑名单" : "拉黑好友"}</span>
+                        </div>
+                    </button>
+                    </>
                     )}
                     <button className="menu-item" onClick={() => setShowConfirmClearTools(true)}>
                         <ChatInfoIcon icon={Code} color="var(--c-danger)" />
@@ -1598,6 +1608,27 @@ export function ChatSettingsPanel({
                         onDeleteFriend?.();
                     }}
                     onCancel={() => setShowConfirmDelete(false)}
+                />
+            )}
+
+            {/* Modal: Confirm Block / Unblock Friend */}
+            {showConfirmBlock && (
+                <ConfirmDialog
+                    title={isBlocked ? "确定将该好友移出黑名单吗？" : "确定要拉黑该好友吗？"}
+                    message={isBlocked
+                        ? "移出黑名单后，将恢复正常的聊天与音视频通话功能。"
+                        : "拉黑后，对方发送的消息将被拒收，且双方均无法发起语音或视频通话。"}
+                    icon={AlertCircle}
+                    variant="danger"
+                    confirmLabel={isBlocked ? "移出" : "拉黑"}
+                    cancelLabel="取消"
+                    onConfirm={() => {
+                        const nextBlocked = !isBlocked;
+                        setIsBlocked(nextBlocked);
+                        updateSession({ isBlacklisted: nextBlocked });
+                        setShowConfirmBlock(false);
+                    }}
+                    onCancel={() => setShowConfirmBlock(false)}
                 />
             )}
 

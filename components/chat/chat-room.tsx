@@ -6223,6 +6223,13 @@ function formatCallDurationDisplay(durationStr: string): string {
                         ...(isFavoriteSelected ? { "data-selected": "" } : {}),
                     } : {};
 
+                    // 拉黑拒收：我方拉黑对方时，对方发来的消息被拒收；对方拉黑我方时，我方发出的消息被拒收。
+                    // 单聊才有意义；群聊/系统消息/撤回/空气泡不参与判定（没有气泡可挂提示）。
+                    const isBlockedBubble = !session.isGroup && uiRole(msg) !== "system" && !msg.isRetracted && !isEmptyBubble && (
+                        (msg.role !== "user" && session.isBlacklisted === true) ||
+                        (msg.role === "user" && session.isBlockedByChar === true)
+                    );
+
                     return (
                         <div key={msg.id} className="flex flex-col gap-4" {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
                             {showTime && (
@@ -6422,9 +6429,16 @@ function formatCallDurationDisplay(durationStr: string): string {
                                             data-ui={msg.role === "user" ? "bubble-user" : "bubble-bot"}
                                             data-msg-id={msg.id}
                                             {...(activeMessageId === msg.id ? { "data-active": "" } : {})}
+                                            {...(isBlockedBubble ? { "data-blocked": "" } : {})}
                                             >
                                             {/* Message Actions Popup */}
                                             {activeMessageId === msg.id && renderBubbleContextMenu(msg)}
+
+                                            {isBlockedBubble && (
+                                                <span className="msg-blocked-icon" aria-label="消息被拒收" title="消息被拒收">
+                                                    <AlertCircle size={16} strokeWidth={2} />
+                                                </span>
+                                            )}
 
                                             <MessageBubble
                                                 msg={renderMsg}
@@ -6474,6 +6488,11 @@ function formatCallDurationDisplay(durationStr: string): string {
                                     </>
                                 )}
                             </div>
+                            {isBlockedBubble && (
+                                <div className="flex justify-center w-full">
+                                    <span className="msg-blocked-notice">消息已发出，但被对方拒收了。</span>
+                                </div>
+                            )}
                             {/* Voice message: text transcription bubble */}
                             {renderMsg.mediaType === "audio" && voiceTextIds.has(msg.id) && renderMsg.mediaData?.label && (
                                 <div className={`chat-msg-wrapper`} data-role={uiRole(msg)} style={{ marginTop: -12 }}>
@@ -6685,8 +6704,22 @@ function formatCallDurationDisplay(durationStr: string): string {
 	                onCloseTheaterMode={closeTheaterMode}
 	                onOpenRichModal={(modal) => { setShowPlusMenu(false); setRichModal(modal); }}
                 onOpenCustomPlusAction={handleOpenCustomPlusAction}
-                onStartVideoCall={() => { cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVideoCall(true); }}
-                onStartVoiceCall={() => { cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVoiceCall(true); }}
+                onStartVideoCall={() => {
+                    if (session.isBlacklisted || session.isBlockedByChar) {
+                        window.dispatchEvent(new CustomEvent(CHAT_PLUGIN_TOAST_EVENT, { detail: { text: session.isBlockedByChar ? "对方已将你拉黑，无法发起视频通话" : "已拉黑该联系人，无法发起视频通话" } }));
+                        setShowPlusMenu(false);
+                        return;
+                    }
+                    cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVideoCall(true);
+                }}
+                onStartVoiceCall={() => {
+                    if (session.isBlacklisted || session.isBlockedByChar) {
+                        window.dispatchEvent(new CustomEvent(CHAT_PLUGIN_TOAST_EVENT, { detail: { text: session.isBlockedByChar ? "对方已将你拉黑，无法发起语音通话" : "已拉黑该联系人，无法发起语音通话" } }));
+                        setShowPlusMenu(false);
+                        return;
+                    }
+                    cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVoiceCall(true);
+                }}
                 onSendText={handleSendText}
                 onStopGeneration={clearStuckGeneration}
                 onTriggerAIResponse={triggerAIResponse}
