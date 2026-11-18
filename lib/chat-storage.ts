@@ -61,6 +61,10 @@ export type ChatSession = {
     blockedByCharAt?: string;
     /** 角色拉黑我方的历史区间列表，语义同 blacklistPeriods */
     blockedByCharPeriods?: BlacklistPeriod[];
+    /** 角色上次感知到的拉黑状态（实时状态感知用，参考 lastSeenUserAvatarId 的单次消费模式）：
+     *  "none"=双方都没拉黑，"blacklisted"=我方正拉黑角色，"blockedByChar"=角色正拉黑我方。
+     *  和当前实际状态不一致时，说明是"刚发现"，要触发强提示；一致则只需平静提醒。 */
+    lastSeenBlacklistState?: "none" | "blacklisted" | "blockedByChar";
     customCSS?: string;
     isMuted?: boolean;
     bilingualTranslationEnabled?: boolean;
