@@ -2058,6 +2058,8 @@ export async function buildChatPromptMessages(
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
         chatAvatarVisualContext,
+        blacklistPeriods: session.blacklistPeriods,
+        blockedByCharPeriods: session.blockedByCharPeriods,
     });
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({

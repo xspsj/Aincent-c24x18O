@@ -54,13 +54,13 @@ export type ChatSession = {
     /** 我方拉黑该角色的历史区间列表：每次拉黑/移出黑名单都会追加一段 [start, end)，
      *  end 为空代表当前仍处于拉黑中。只有落在某个区间内的对方消息才标记拒收，
      *  这样移出黑名单后，拉黑期间产生的历史消息仍保留标记，不会被抹掉。 */
-    blacklistPeriods?: { start: string; end?: string }[];
+    blacklistPeriods?: BlacklistPeriod[];
     /** 角色是否拉黑我方 */
     isBlockedByChar?: boolean;
     /** 角色拉黑我方的时间点（ISO） */
     blockedByCharAt?: string;
     /** 角色拉黑我方的历史区间列表，语义同 blacklistPeriods */
-    blockedByCharPeriods?: { start: string; end?: string }[];
+    blockedByCharPeriods?: BlacklistPeriod[];
     customCSS?: string;
     isMuted?: boolean;
     bilingualTranslationEnabled?: boolean;
@@ -98,6 +98,23 @@ export type ChatSession = {
     customUserAvatarDesc?: string;   // 用户在该聊天中头像的描述名称
     lastSeenUserAvatarId?: string;   // 角色上次感知到的用户头像ID（用于抓包调侃）
 };
+
+/** 拉黑拒收区间：{start} 开始拉黑，{end} 结束（移出黑名单），end 缺省代表仍处于拉黑中 */
+export type BlacklistPeriod = { start: string; end?: string };
+
+/** 拉黑拒收判定：消息创建时间是否落在某一段拉黑区间内（与当前是否仍处于拉黑状态无关，
+ *  这样移出黑名单后，拉黑期间产生的历史消息仍保留拒收标记，不会被抹掉）。
+ *  UI 渲染（chat-room.tsx）与发给 LLM 的历史格式化（llm-prompt-assembler.ts）共用同一份判定，
+ *  避免两处逻辑各写一份、以后改一处漏改另一处。 */
+export function isInBlockedPeriod(periods: BlacklistPeriod[] | undefined, createdAt: string): boolean {
+    if (!periods || periods.length === 0) return false;
+    const t = new Date(createdAt).getTime();
+    return periods.some(p => {
+        const startT = new Date(p.start).getTime();
+        const endT = p.end ? new Date(p.end).getTime() : Infinity;
+        return t >= startT && t < endT;
+    });
+}
 
 export type ChatMessageStatus = "sending" | "sent" | "read" | "failed";
 export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
