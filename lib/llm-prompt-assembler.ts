@@ -481,6 +481,8 @@ function pushChronologicalShortTermBlocks(params: {
     timestampOptions?: PromptTimestampOptions;
     visionEnabled: boolean;
     nativeToolHistory?: boolean;
+    blacklistPeriods?: BlacklistPeriod[];
+    blockedByCharPeriods?: BlacklistPeriod[];
 }) {
     const {
         blocks,
@@ -491,6 +493,8 @@ function pushChronologicalShortTermBlocks(params: {
         timeAware,
         timestampOptions,
         visionEnabled,
+        blacklistPeriods,
+        blockedByCharPeriods,
     } = params;
 
     const totalItems = items.length;
@@ -569,9 +573,18 @@ function pushChronologicalShortTermBlocks(params: {
         if (!body.trim() && !imageUrl) return;
 
         const isAssistantImage = imageUrl && msg.role === "assistant" && msg.mediaType === "media_file";
-        const text = isAssistantImage
+        let text = isAssistantImage
             ? formatAssistantImageHistoryText(msg, body, Boolean(showTs), ts)
             : (showTs ? `${ts}\n${body}` : body);
+        // 拉黑拒收标注：与主函数里的非时间线分支保持同一份判定逻辑（见 isInBlockedPeriod）
+        if (!msg.isRetracted) {
+            const isBlockedHistoryMsg = msg.role !== "user"
+                ? isInBlockedPeriod(blacklistPeriods, msg.createdAt)
+                : isInBlockedPeriod(blockedByCharPeriods, msg.createdAt);
+            if (isBlockedHistoryMsg) {
+                text += "\n（消息已发出，但被对方拒收了。）";
+            }
+        }
         blocks.push({
             text,
             role: isAssistantImage ? "user" : promptRole,
@@ -931,6 +944,8 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
             timestampOptions: promptTimestampOptions,
             visionEnabled: input.enableVision === true,
             nativeToolHistory: input.nativeToolHistory === true,
+            blacklistPeriods,
+            blockedByCharPeriods,
         });
     } else if (preset) {
         // Wrap chat history section in XML tags with per-feature recent blocks
