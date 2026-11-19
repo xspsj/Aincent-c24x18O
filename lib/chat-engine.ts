@@ -2033,16 +2033,11 @@ export async function buildChatPromptMessages(
             blacklistAwarenessContext = "【系统感知：你解除了对对方的拉黑，重新能看到对方发的消息了。请按你的人设性格决定此刻的心情。】";
         }
 
-        // 更新 lastSeenBlacklistState 确保单次消费（强提示只在刚发现的这一轮出现）
-        if (currentBlacklistState !== lastSeenState) {
-            const sessions = loadChatSessions();
-            const sIdx = sessions.findIndex(s => s.id === session.id);
-            if (sIdx !== -1) {
-                sessions[sIdx] = { ...sessions[sIdx], lastSeenBlacklistState: currentBlacklistState };
-                saveChatSessions(sessions);
-                session.lastSeenBlacklistState = currentBlacklistState;
-            }
-        }
+        // 注意：lastSeenBlacklistState 的写入（单次消费标记）不在这里做——
+        // buildChatPromptMessages 会被「预览 Prompt」等只读调试工具直接调用，
+        // 如果在这里写入，光是打开提示词查看器看一眼就会把"刚发现被拉黑"这个
+        // 强提示提前消费掉，导致角色真正生成时读到的已经是平淡的"已知道"版本。
+        // 真正的消费写入挪到 generateChatCompletionCore（只有真实触发生成才会调用）。
     }
 
     // 状态区宏：按会话配置解析（native=原文/off=空/custom=契约）；群聊条目不含宏，不受影响
@@ -2133,6 +2128,29 @@ export async function buildChatPromptMessages(
     }
 
     return { llmMessages, character, config, preset, regexes, userIdentity, toolsEnabled };
+}
+
+/**
+ * 标记拉黑感知状态已被真实消费（单次消费，确保"刚发现"的强提示只在真正触发生成的那一轮出现）。
+ * 必须只在真正的生成入口调用，不能挪进 buildChatPromptMessages——那个函数会被「预览 Prompt」
+ * 等只读调试工具直接调用，写在那边会导致光是打开提示词查看器看一眼就提前消费掉状态。
+ */
+function consumeBlacklistAwareness(session: ChatSession): void {
+    if (session.isGroup) return;
+    const currentBlacklistState: "none" | "blacklisted" | "blockedByChar" = session.isBlacklisted
+        ? "blacklisted"
+        : session.isBlockedByChar
+            ? "blockedByChar"
+            : "none";
+    const lastSeenState = session.lastSeenBlacklistState ?? "none";
+    if (currentBlacklistState === lastSeenState) return;
+    const sessions = loadChatSessions();
+    const sIdx = sessions.findIndex(s => s.id === session.id);
+    if (sIdx !== -1) {
+        sessions[sIdx] = { ...sessions[sIdx], lastSeenBlacklistState: currentBlacklistState };
+        saveChatSessions(sessions);
+        session.lastSeenBlacklistState = currentBlacklistState;
+    }
 }
 
 export type ChatCompletionCallbacks = {
@@ -2698,6 +2716,9 @@ async function generateChatCompletionCore(
     bailoutRef: ReplyBailoutRef,
 ): Promise<ChatCompletionResult> {
     const { llmMessages, character, config, preset, regexes, userIdentity, toolsEnabled } = await buildChatPromptMessages(session, history, options);
+    // 真正触发生成：消费掉这一轮的拉黑感知状态（见 consumeBlacklistAwareness 注释），
+    // 确保"刚发现被拉黑/解封"的强提示只出现一次，且只在真实生成时消费，不受预览调试影响
+    consumeBlacklistAwareness(session);
     const requestAppTags = mergeAppTags(options?.appTags, options?.promptProfile?.appTags, options?.appId ?? "chat");
 
     // 追问有自己的排期时兜底（followup:key），这里只为普通回复生成挂单。
