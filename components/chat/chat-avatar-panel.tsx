@@ -43,13 +43,14 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
     // 用户当前聊天专属网头
     const [userChatAvatar, setUserChatAvatar] = useState<string>("");
 
-    // 新增头像表单（角色库）
-    const [newDesc, setNewDesc] = useState("");
+    // 待确认存库的选图弹窗状态（支持角色库或我的库）
+    const [pendingUpload, setPendingUpload] = useState<{
+        target: "character" | "user";
+        dataUrl: string;
+        defaultDesc: string;
+    } | null>(null);
+    const [pendingDesc, setPendingDesc] = useState("");
     const [uploading, setUploading] = useState(false);
-
-    // 新增头像表单（我的用户库）
-    const [newUserDesc, setNewUserDesc] = useState("");
-    const [uploadingUser, setUploadingUser] = useState(false);
 
     // 刷新数据
     const refreshData = () => {
@@ -73,9 +74,10 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
 
     const activeChar = characters.find(c => c.id === selectedCharId);
 
-    // 上传新头像进角色专属库
-    const handleUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 选择新图片准备存入角色专属库：先读图，再打开描述录入确认弹窗
+    const handleSelectCharAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
+        e.target.value = "";
         if (!file || !selectedCharId) return;
         setUploading(true);
         try {
@@ -85,12 +87,15 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
                 reader.onerror = reject;
                 reader.readAsDataURL(file);
             });
-            const defaultDesc = newDesc.trim() || `${activeChar?.name || "角色"}的新头像`;
-            addCharacterChatAvatar(selectedCharId, dataUrl, defaultDesc, "manual");
-            setNewDesc("");
-            refreshData();
+            const defaultDesc = `${activeChar?.name || "角色"}的新头像`;
+            setPendingDesc("");
+            setPendingUpload({
+                target: "character",
+                dataUrl,
+                defaultDesc,
+            });
         } catch {
-            alert("图片上传失败");
+            alert("图片读取失败");
         } finally {
             setUploading(false);
         }
@@ -139,11 +144,12 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
         window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
     };
 
-    // 上传新头像进「我的网络头像库」
-    const handleUploadUserAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 选择新图片准备存入「我的网络头像库」：先读图，再打开描述录入确认弹窗
+    const handleSelectUserAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
+        e.target.value = "";
         if (!file) return;
-        setUploadingUser(true);
+        setUploading(true);
         try {
             const dataUrl = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
@@ -151,15 +157,34 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
                 reader.onerror = reject;
                 reader.readAsDataURL(file);
             });
-            const defaultDesc = newUserDesc.trim() || "我的专属头像";
-            addUserChatAvatar(dataUrl, defaultDesc, "manual");
-            setNewUserDesc("");
-            refreshData();
+            const defaultDesc = "我的专属头像";
+            setPendingDesc("");
+            setPendingUpload({
+                target: "user",
+                dataUrl,
+                defaultDesc,
+            });
         } catch {
-            alert("上传失败");
+            alert("图片读取失败");
         } finally {
-            setUploadingUser(false);
+            setUploading(false);
         }
+    };
+
+    // 提交保存待存头像与描述
+    const handleConfirmPendingUpload = () => {
+        if (!pendingUpload) return;
+        const finalDesc = pendingDesc.trim() || pendingUpload.defaultDesc;
+        if (pendingUpload.target === "character") {
+            if (selectedCharId) {
+                addCharacterChatAvatar(selectedCharId, pendingUpload.dataUrl, finalDesc, "manual");
+            }
+        } else {
+            addUserChatAvatar(pendingUpload.dataUrl, finalDesc, "manual");
+        }
+        setPendingUpload(null);
+        setPendingDesc("");
+        refreshData();
     };
 
     // 从我的头像库中选一张设为当前聊天的专属网络头像
@@ -356,20 +381,11 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
                             </span>
                         </div>
 
-                        {/* 上传新头像进库 */}
-                        <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-black/5 dark:bg-white/5">
-                            <input
-                                type="text"
-                                placeholder="输入头像描述（例：你送给我的圣诞自拍）"
-                                value={newDesc}
-                                onChange={e => setNewDesc(e.target.value)}
-                                className="ui-input text-xs w-full h-8 px-2"
-                            />
-                            <label className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[var(--c-icon-active)] text-white text-xs font-semibold cursor-pointer active:scale-98 transition-transform">
-                                <Plus size={14} /> 上传新头像到角色库
-                                <input type="file" accept="image/*" onChange={handleUploadAvatar} className="hidden" disabled={uploading} />
-                            </label>
-                        </div>
+                        {/* 上传新头像进库：直接点按钮选图，选完再填描述保存 */}
+                        <label className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[var(--c-icon-active)] text-white text-xs font-semibold cursor-pointer active:scale-98 transition-transform shadow-sm">
+                            <Plus size={15} /> 上传新头像到角色库
+                            <input type="file" accept="image/*" onChange={handleSelectCharAvatarFile} className="hidden" disabled={uploading} />
+                        </label>
 
                         {/* 头像列表 */}
                         <div className="grid grid-cols-3 gap-3 pt-1">
@@ -466,20 +482,11 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
                             </span>
                         </div>
 
-                        {/* 上传新头像进我的库 */}
-                        <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-black/5 dark:bg-white/5">
-                            <input
-                                type="text"
-                                placeholder="输入头像描述（例：圣诞自拍、猫猫情头女款、红裙子）"
-                                value={newUserDesc}
-                                onChange={e => setNewUserDesc(e.target.value)}
-                                className="ui-input text-xs w-full h-8 px-2"
-                            />
-                            <label className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[var(--c-icon-active)] text-white text-xs font-semibold cursor-pointer active:scale-98 transition-transform">
-                                <Plus size={14} /> 上传新头像到我的库
-                                <input type="file" accept="image/*" onChange={handleUploadUserAvatar} className="hidden" disabled={uploadingUser} />
-                            </label>
-                        </div>
+                        {/* 上传新头像进我的库：直接点按钮选图，选完再填描述保存 */}
+                        <label className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[var(--c-icon-active)] text-white text-xs font-semibold cursor-pointer active:scale-98 transition-transform shadow-sm">
+                            <Plus size={15} /> 上传新头像到我的库
+                            <input type="file" accept="image/*" onChange={handleSelectUserAvatarFile} className="hidden" disabled={uploading} />
+                        </label>
 
                         {/* 我的头像列表 */}
                         <div className="grid grid-cols-3 gap-3 pt-1">
@@ -563,6 +570,72 @@ export function ChatAvatarPanel({ onBack, sessionId, initialCharacterId, lockCha
                         </div>
                     </div>
                 </div>
+
+                {/* 选完图片后录入描述的弹窗 */}
+                {pendingUpload && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+                        onClick={() => setPendingUpload(null)}
+                    >
+                        <div
+                            className="bg-[var(--c-card)] border border-[var(--c-card-border)]/60 rounded-3xl p-5 w-full max-w-sm flex flex-col items-center gap-4 shadow-2xl animate-scale-up"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <span className="text-sm font-bold text-[var(--c-text-title)]">
+                                {pendingUpload.target === "character"
+                                    ? `为 ${activeChar?.name || "角色"} 保存新头像`
+                                    : "保存新头像到我的网络头像库"}
+                            </span>
+
+                            {/* 刚才选择的照片预览 */}
+                            <div className="w-24 h-24 rounded-2xl overflow-hidden bg-black/10 border-2 border-[var(--c-card-border)] shadow-md shrink-0">
+                                <img
+                                    src={pendingUpload.dataUrl}
+                                    alt="Preview"
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
+
+                            {/* 描述输入框 */}
+                            <div className="w-full flex flex-col gap-1.5">
+                                <label className="text-[11px] font-semibold text-[var(--c-text)] opacity-70">
+                                    头像描述（角色可在剧情与对话中感知）
+                                </label>
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    placeholder={pendingUpload.target === "character" ? "例如：你送给我的圣诞自拍、侧脸微笑" : "例如：圣诞自拍、猫猫情头、戴眼镜"}
+                                    value={pendingDesc}
+                                    onChange={e => setPendingDesc(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === "Enter") {
+                                            handleConfirmPendingUpload();
+                                        }
+                                    }}
+                                    className="ui-input text-xs w-full h-10 px-3 rounded-xl"
+                                />
+                            </div>
+
+                            {/* 按钮操作栏 */}
+                            <div className="flex gap-2.5 w-full pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingUpload(null)}
+                                    className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-black/5 dark:bg-white/10 text-[var(--c-text)] border-none cursor-pointer active:scale-95 transition-transform"
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleConfirmPendingUpload}
+                                    className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[var(--c-icon-active)] text-white border-none cursor-pointer active:scale-95 transition-transform shadow"
+                                >
+                                    确认保存
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </PageShell>
     );
