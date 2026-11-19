@@ -680,6 +680,17 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     const [suggestClosed, setSuggestClosed] = useState(false);
     // 工具箱横向分页：记录当前激活页码，用于圆点指示器联动
     const [currentPlusPage, setCurrentPlusPage] = useState(0);
+    const pagedViewportRef = useRef<HTMLDivElement | null>(null);
+
+    // 当加号工具箱打开/关闭切换时，重置回第一页
+    useEffect(() => {
+        if (!showPlusMenu) {
+            setCurrentPlusPage(0);
+            if (pagedViewportRef.current) {
+                pagedViewportRef.current.scrollLeft = 0;
+            }
+        }
+    }, [showPlusMenu]);
     // 围观群/被禁言：输入与富媒体入口全部锁定，只留线下切换和生成按钮
     const [muteNowTick, setMuteNowTick] = useState(() => Date.now());
     useEffect(() => {
@@ -900,6 +911,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 plusMenuLayoutStyle === "paged" ? (
                     <div className="chat-plus-menu-container">
                         <div
+                            ref={pagedViewportRef}
                             className="chat-plus-menu-paged-viewport"
                             onScroll={e => {
                                 const el = e.currentTarget;
@@ -927,8 +939,9 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                                             key={dotIdx}
                                             className={`chat-plus-menu-dot ${dotIdx === currentPlusPage ? "active" : ""}`}
                                             onClick={() => {
-                                                const el = document.querySelector(".chat-plus-menu-paged-viewport") as HTMLElement | null;
-                                                if (el) el.scrollTo({ left: dotIdx * el.clientWidth, behavior: "smooth" });
+                                                if (pagedViewportRef.current) {
+                                                    pagedViewportRef.current.scrollTo({ left: dotIdx * pagedViewportRef.current.clientWidth, behavior: "smooth" });
+                                                }
                                             }}
                                         />
                                 ))}

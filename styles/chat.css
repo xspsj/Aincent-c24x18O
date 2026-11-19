@@ -845,16 +845,22 @@
 .chat-plus-menu-dot {
   width: 6px;
   height: 6px;
-  border-radius: 9999px;
-  background-color: var(--c-text);
-  opacity: 0.25;
-  transition: all 0.25s ease;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.22);
+  transition: background-color 0.2s ease, opacity 0.2s ease;
 }
 
 .chat-plus-menu-dot.active {
-  opacity: 0.9;
-  width: 14px;
-  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.9);
+  opacity: 1;
+}
+
+/* 亮色模式/浅色背景下的明暗对比 */
+:root:not(.dark) .chat-plus-menu-dot {
+  background-color: rgba(0, 0, 0, 0.16);
+}
+:root:not(.dark) .chat-plus-menu-dot.active {
+  background-color: rgba(0, 0, 0, 0.65);
 }
 
 .chat-offline-toggle {
