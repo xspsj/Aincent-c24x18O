@@ -2026,7 +2026,7 @@ export async function buildChatPromptMessages(
         } else if (currentBlacklistState === "blockedByChar") {
             blacklistAwarenessContext = justChanged
                 ? "【系统感知：你刚刚把对方拉黑了。请按你的人设性格决定此刻的心情与后续态度——比如懒得理对方、觉得解脱、或是嘴上拉黑心里还惦记。】"
-                : "【系统感知：你仍处于拉黑对方的状态。】";
+                : "【系统感知：你仍处于拉黑对方的状态。这一轮回复只输出状态栏/内心独白来表达你此刻的心情与想法，不要输出任何聊天正文，也不要使用 [拉黑对方] 或任何其他方括号指令——你已经把对方拉黑了，没有必要再说话。除非你自己决定原谅对方、想要输出 [解除拉黑]，否则保持沉默。】";
         } else if (lastSeenState === "blacklisted") {
             blacklistAwarenessContext = "【系统感知：你发现自己被对方拉黑的状态解除了！对方把你拉回来了，你的消息对方又能收到了。请按你的人设性格对此做出反应。】";
         } else if (lastSeenState === "blockedByChar") {
