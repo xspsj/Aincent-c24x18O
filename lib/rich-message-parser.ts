@@ -267,6 +267,25 @@ const RICH_PATTERNS: {
         },
     },
     {
+        // [拉黑对方] — 角色主动拉黑用户：此后用户发来的消息角色依然能看到（用于判断是否解封），
+        // 但不会生成可见的聊天气泡回复，直到角色自己决定输出 [解除拉黑]
+        regex: /\[拉黑对方\]/,
+        build: () => ({
+            content: "",
+            mediaType: "tool_notice" as const,
+            mediaData: { label: "将对方拉黑了", customActionType: "block_user" },
+        }),
+    },
+    {
+        // [解除拉黑] — 角色主动解除对用户的拉黑
+        regex: /\[解除拉黑\]/,
+        build: () => ({
+            content: "",
+            mediaType: "tool_notice" as const,
+            mediaData: { label: "解除了对对方的拉黑", customActionType: "unblock_user" },
+        }),
+    },
+    {
         regex: new RegExp(`\\[表情包${C}([^\\]]+)\\]`),
         build: (m) => {
             const name = m[1].trim();

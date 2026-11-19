@@ -3187,6 +3187,43 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 }
                 continue;
             }
+            // 角色主动拉黑用户：[拉黑对方]。单聊才生效，追加一段新的拉黑区间（复用「我方拉黑角色」同一套字段）
+            if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "block_user" && !session.isGroup) {
+                if (!session.isBlockedByChar) {
+                    const nowIso = new Date().toISOString();
+                    const periods = [...(session.blockedByCharPeriods || [])];
+                    periods.push({ start: nowIso });
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id
+                        ? { ...s, isBlockedByChar: true, blockedByCharAt: nowIso, blockedByCharPeriods: periods }
+                        : s);
+                    saveChatSessions(nextSessions);
+                    session.isBlockedByChar = true;
+                    session.blockedByCharAt = nowIso;
+                    session.blockedByCharPeriods = periods;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                }
+                continue;
+            }
+            // 角色主动解除拉黑：[解除拉黑]。关闭最后一个未结束的区间
+            if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "unblock_user" && !session.isGroup) {
+                if (session.isBlockedByChar) {
+                    const nowIso = new Date().toISOString();
+                    const periods = [...(session.blockedByCharPeriods || [])];
+                    if (periods.length > 0 && !periods[periods.length - 1].end) {
+                        periods[periods.length - 1] = { ...periods[periods.length - 1], end: nowIso };
+                    }
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id
+                        ? { ...s, isBlockedByChar: false, blockedByCharPeriods: periods }
+                        : s);
+                    saveChatSessions(nextSessions);
+                    session.isBlockedByChar = false;
+                    session.blockedByCharPeriods = periods;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                }
+                continue;
+            }
             pushFilteredPart(p);
         }
 

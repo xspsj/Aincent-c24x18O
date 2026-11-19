@@ -289,6 +289,11 @@ export type ChatMessage = {
         appTags?: string[];
         appHistoryText?: string;
         appHistoryRole?: ChatMessageRole;
+        /** tool_notice 消息的自定义副作用类型标记（如 change_avatar、block_user、unblock_user），
+         *  渲染时按此字段派发到对应的处理逻辑 */
+        customActionType?: string;
+        avatarUrl?: string;  // customActionType=change_avatar 时：目标头像图片 URL
+        avatarDesc?: string; // customActionType=change_avatar 时：目标头像描述
     };
     isTyping?: boolean; // temporary flag for UI rendering
     statusPanel?: string; // AI display-only status content from [状态栏] tags
