@@ -3057,15 +3057,23 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
-        // 拉黑期间的静默回复模式：这一轮如果不是"正在触发拉黑/解封决定"的那一轮，
+        // 拉黑期间的静默回复模式：这一轮如果不是"正在触发真正的拉黑/解封状态切换"的那一轮，
         // 且角色当前仍处于拉黑我方的状态，这一轮的所有内容（文字、富媒体、通话发起等）都要被
         // 屏蔽——角色不会生成任何可见回复，直到自己决定输出 [解除拉黑]。是否要在拉黑那一刻
-        // 配一句台词由人设自己决定：只有本轮确实包含 [拉黑对方]/[解除拉黑] 指令时，
-        // 才允许该轮正常显示内容（见下方 for 循环开头的 shouldSilenceForBlockedByChar 判断）。
-        const isDecidingBlockThisRound = !session.isGroup && parts.some(p =>
-            p.mediaType === "tool_notice" && (p.mediaData?.customActionType === "block_user" || p.mediaData?.customActionType === "unblock_user")
-        );
-        const shouldSilenceForBlockedByChar = !session.isGroup && session.isBlockedByChar === true && !isDecidingBlockThisRound;
+        // 配一句台词由人设自己决定：只有本轮确实触发了"真正的状态切换"时，才允许该轮正常显示。
+        //
+        // 关键：必须用「这一轮开始前」的原始状态来判断是否是真正切换，不能只看"这一轮有没有
+        // 出现这个指令"——否则角色已经拉黑后，每一轮都重复输出 [拉黑对方]（模型可能把它
+        // 当成"我现在处于拉黑状态"的口头表达而反复提及）时，会被一直误判成"正在做决定"，
+        // 从而一直绕过静默屏蔽，导致角色每轮只吐出这几个字、不写状态栏，界面上什么都不显示。
+        const wasBlockedByCharBeforeThisRound = session.isBlockedByChar === true;
+        const isDecidingBlockThisRound = !session.isGroup && parts.some(p => {
+            if (p.mediaType !== "tool_notice") return false;
+            if (p.mediaData?.customActionType === "block_user") return !wasBlockedByCharBeforeThisRound; // 还没拉黑时才算真正触发
+            if (p.mediaData?.customActionType === "unblock_user") return wasBlockedByCharBeforeThisRound; // 已拉黑时才算真正解封
+            return false;
+        });
+        const shouldSilenceForBlockedByChar = !session.isGroup && wasBlockedByCharBeforeThisRound && !isDecidingBlockThisRound;
         // 角色自然对白换头像兼容兜底（口头配合与指令执行）：
         if (session.contactId && !session.isGroup) {
             // 1. 处理结构化指令：[换自己头像:xxx] 或 [换对方头像:xxx]
