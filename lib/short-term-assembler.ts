@@ -3,7 +3,7 @@
 // a unified timeline. Replaces the old ShortTermEvent IndexedDB approach.
 // Used by: memory-bank-page (UI display), memory-summarizer (summarization input).
 
-import { isReadingDiscussMessage, isSystemInstructionMessage, loadChatSessions, loadChatMessages, type ChatMessage } from "./chat-storage";
+import { isReadingDiscussMessage, isSystemInstructionMessage, loadChatSessions, loadChatMessages, isInBlockedPeriod, type ChatMessage } from "./chat-storage";
 import { buildGroupAdminBracketText } from "./group-admin";
 import { loadMomentPosts, loadMomentComments } from "./moments-storage";
 import { loadCharacters } from "./character-storage";
@@ -387,6 +387,17 @@ export function loadNativeTimeline(
             }
 
             if (!content.trim()) continue;
+
+            // 拉黑拒收标注：与 llm-prompt-assembler.ts 的历史格式化逻辑保持一致（同一份 isInBlockedPeriod 判定），
+            // 确保被摘要进短期记忆事件、未来沉淀成长期记忆时，"这段时间被拉黑过"不会丢失
+            if (!msg.isRetracted) {
+                const isBlockedTimelineMsg = msg.role !== "user"
+                    ? isInBlockedPeriod(session.blacklistPeriods, msg.createdAt)
+                    : isInBlockedPeriod(session.blockedByCharPeriods, msg.createdAt);
+                if (isBlockedTimelineMsg) {
+                    content += "（消息已发出，但被对方拒收了。）";
+                }
+            }
 
             entries.push({
                 id: msg.id,
