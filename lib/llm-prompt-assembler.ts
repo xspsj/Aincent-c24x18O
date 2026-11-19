@@ -1,7 +1,7 @@
 // lib/llm-prompt-assembler.ts
 
 import { Character } from "./character-types";
-import { ChatMessage } from "./chat-storage";
+import { ChatMessage, isInBlockedPeriod, type BlacklistPeriod } from "./chat-storage";
 import type { StateValue } from "./chat-storage";
 import { PresetConfig, Prompt, PromptOrderEntry, WorldBookConfig, RegexConfig, WorldBookEntry } from "./settings-types";
 import type { UserIdentity } from "@/components/settings/user-identity";
@@ -136,6 +136,11 @@ export interface AssemblerInput {
     cocreateArchivedChapterContext?: string;
     cocreateWriterNotebook?: string;
     chatAvatarVisualContext?: string; // 聊天视觉形象与头像库感知数据
+    /** 我方拉黑该角色的历史区间：落在区间内的角色历史消息会在喂给 LLM 时追加拒收标注，
+     *  让角色能从自己消息的"命运"感知到被拉黑/被拉回来，不需要额外的系统声明 */
+    blacklistPeriods?: BlacklistPeriod[];
+    /** 角色拉黑我方的历史区间：落在区间内的我方历史消息同样追加拒收标注 */
+    blockedByCharPeriods?: BlacklistPeriod[];
 }
 
 type PromptBlock = {
@@ -476,6 +481,8 @@ function pushChronologicalShortTermBlocks(params: {
     timestampOptions?: PromptTimestampOptions;
     visionEnabled: boolean;
     nativeToolHistory?: boolean;
+    blacklistPeriods?: BlacklistPeriod[];
+    blockedByCharPeriods?: BlacklistPeriod[];
 }) {
     const {
         blocks,
@@ -486,6 +493,8 @@ function pushChronologicalShortTermBlocks(params: {
         timeAware,
         timestampOptions,
         visionEnabled,
+        blacklistPeriods,
+        blockedByCharPeriods,
     } = params;
 
     const totalItems = items.length;
@@ -564,9 +573,18 @@ function pushChronologicalShortTermBlocks(params: {
         if (!body.trim() && !imageUrl) return;
 
         const isAssistantImage = imageUrl && msg.role === "assistant" && msg.mediaType === "media_file";
-        const text = isAssistantImage
+        let text = isAssistantImage
             ? formatAssistantImageHistoryText(msg, body, Boolean(showTs), ts)
             : (showTs ? `${ts}\n${body}` : body);
+        // 拉黑拒收标注：与主函数里的非时间线分支保持同一份判定逻辑（见 isInBlockedPeriod）
+        if (!msg.isRetracted) {
+            const isBlockedHistoryMsg = msg.role !== "user"
+                ? isInBlockedPeriod(blacklistPeriods, msg.createdAt)
+                : isInBlockedPeriod(blockedByCharPeriods, msg.createdAt);
+            if (isBlockedHistoryMsg) {
+                text += "\n（消息已发出，但被对方拒收了。）";
+            }
+        }
         blocks.push({
             text,
             role: isAssistantImage ? "user" : promptRole,
@@ -634,6 +652,8 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
     const timedWakeIntent = input.timedWakeIntent ?? "";
     const periodCareContext = input.periodCareContext ?? "";
     const resolvedUserName = userIdentity?.name || userName;
+    const blacklistPeriods = input.blacklistPeriods;
+    const blockedByCharPeriods = input.blockedByCharPeriods;
     const blocks: PromptBlock[] = [];
     const timeAware = resolveTimeAware(input.timeAware);
     const promptTimeContext = input.timeContext ?? buildCharacterTimeContext(character.timeZone);
@@ -924,6 +944,8 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
             timestampOptions: promptTimestampOptions,
             visionEnabled: input.enableVision === true,
             nativeToolHistory: input.nativeToolHistory === true,
+            blacklistPeriods,
+            blockedByCharPeriods,
         });
     } else if (preset) {
         // Wrap chat history section in XML tags with per-feature recent blocks
@@ -1035,9 +1057,19 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
 
             if (!body.trim() && !imageUrl) return;
             const isAssistantImage = imageUrl && msg.role === "assistant" && msg.mediaType === "media_file";
-            const text = isAssistantImage
+            let text = isAssistantImage
                 ? formatAssistantImageHistoryText(msg, body, Boolean(showTs), ts)
                 : (showTs ? `${ts}\n${body}` : body);
+            // 拉黑拒收标注：让角色从自己消息的"命运"感知到被拉黑/被拉回来——
+            // 不需要额外的系统声明，看到这句话消失，角色就知道自己被放出来了。
+            if (!msg.isRetracted) {
+                const isBlockedHistoryMsg = msg.role !== "user"
+                    ? isInBlockedPeriod(blacklistPeriods, msg.createdAt)
+                    : isInBlockedPeriod(blockedByCharPeriods, msg.createdAt);
+                if (isBlockedHistoryMsg) {
+                    text += "\n（消息已发出，但被对方拒收了。）";
+                }
+            }
             blocks.push({
                 text,
                 role: isAssistantImage ? "user" : promptRole,

@@ -6,7 +6,7 @@ import type { PresetConfig } from "./settings-types";
 import { getCheckPhonePromptTags } from "./checkphone-config";
 
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
-export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
+export const BUILTIN_PRESET_VERSION = 266; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升——本次新增「拉黑对方/解除拉黑」指令说明
 
 export function createBuiltinPreset(): PresetConfig {
     const now = Date.now();
@@ -465,6 +465,14 @@ export function createBuiltinPreset(): PresetConfig {
                     "",
                     "### 拒绝代付",
                     "【格式】[拒绝代付]",
+                    "",
+                    "### 拉黑对方",
+                    "【格式】[拉黑对方]",
+                    "【规则】这是一个很重的决定，仅在{{user}}的言行让你感到极度愤怒、委屈或心灰意冷，经过认真考虑后决定暂时不想再联系对方时才可以使用。不要因为普通的小摩擦、玩笑或日常拌嘴就触发；同一天内不要重复触发。触发后你依然能看到{{user}}发来的消息，但不会再回复，除非你自己决定原谅对方。",
+                    "",
+                    "### 解除拉黑",
+                    "【格式】[解除拉黑]",
+                    "【规则】仅在你已经使用过[拉黑对方]、且看到{{user}}后续发来的消息让你气消了、心软了或感到有必要和解时才使用。",
                     "",
                     "{{customAppRichMediaDirectives}}",
                     "",

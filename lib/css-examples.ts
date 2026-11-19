@@ -125,6 +125,18 @@ export const CHAT_SESSION_CSS_EXAMPLE = `/* ═══ 单独聊天室 CSS 示例
   overflow: visible;
 }
 
+/* ── 拉黑拒收：红色感叹号 + 居中拒收提示 ── */
+/* .msg-blocked-icon = 红色感叹号图标（纯文字"!"，默认贴在气泡远离头像的外侧） */
+.msg-blocked-icon {
+  background: #FA5151;
+  /* width: 20px; height: 20px; font-size: 14px; 改大小记得三个一起改，否则感叹号会偏 */
+}
+/* .msg-blocked-notice = 气泡下方居中的「消息已发出，但被对方拒收了」提示文字 */
+.msg-blocked-notice {
+  color: var(--c-text);
+  /* text-align: left; 想让提示贴着气泡左对齐而不是居中，改这里 */
+}
+
 /* ── 引用、编辑、长按菜单 ── */
 .chat-quote-bar,
 .chat-inline-edit-textarea {

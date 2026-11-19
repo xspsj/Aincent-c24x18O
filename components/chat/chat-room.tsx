@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled } from "@/lib/chat-storage";
+import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled, isInBlockedPeriod } from "@/lib/chat-storage";
 import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXmlTagBlocks } from "@/lib/stream-preview";
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
@@ -3057,6 +3057,23 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
+        // 拉黑期间的静默回复模式：这一轮如果不是"正在触发真正的拉黑/解封状态切换"的那一轮，
+        // 且角色当前仍处于拉黑我方的状态，这一轮的所有内容（文字、富媒体、通话发起等）都要被
+        // 屏蔽——角色不会生成任何可见回复，直到自己决定输出 [解除拉黑]。是否要在拉黑那一刻
+        // 配一句台词由人设自己决定：只有本轮确实触发了"真正的状态切换"时，才允许该轮正常显示。
+        //
+        // 关键：必须用「这一轮开始前」的原始状态来判断是否是真正切换，不能只看"这一轮有没有
+        // 出现这个指令"——否则角色已经拉黑后，每一轮都重复输出 [拉黑对方]（模型可能把它
+        // 当成"我现在处于拉黑状态"的口头表达而反复提及）时，会被一直误判成"正在做决定"，
+        // 从而一直绕过静默屏蔽，导致角色每轮只吐出这几个字、不写状态栏，界面上什么都不显示。
+        const wasBlockedByCharBeforeThisRound = session.isBlockedByChar === true;
+        const isDecidingBlockThisRound = !session.isGroup && parts.some(p => {
+            if (p.mediaType !== "tool_notice") return false;
+            if (p.mediaData?.customActionType === "block_user") return !wasBlockedByCharBeforeThisRound; // 还没拉黑时才算真正触发
+            if (p.mediaData?.customActionType === "unblock_user") return wasBlockedByCharBeforeThisRound; // 已拉黑时才算真正解封
+            return false;
+        });
+        const shouldSilenceForBlockedByChar = !session.isGroup && wasBlockedByCharBeforeThisRound && !isDecidingBlockThisRound;
         // 角色自然对白换头像兼容兜底（口头配合与指令执行）：
         if (session.contactId && !session.isGroup) {
             // 1. 处理结构化指令：[换自己头像:xxx] 或 [换对方头像:xxx]
@@ -3126,6 +3143,11 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
         for (const p of parts) {
             throwIfGenerationStopped(options);
+            // 拉黑期间静默：本轮不是"正在决定拉黑/解封"时，角色当前仍处于拉黑我方状态——
+            // 不管是文字、红包、通话发起还是换头像，一律视为"不回应"，直接丢弃，不进 filteredParts。
+            // isDecidingBlockThisRound 已经把 [拉黑对方]/[解除拉黑] 指令所在的那一轮排除在外，
+            // 所以这里永远不会误伤正在触发拉黑/解封决定的那条指令本身。
+            if (shouldSilenceForBlockedByChar) continue;
             if (p.mediaType === "voice_call") { triggerCall = "voice"; continue; }
             if (p.mediaType === "video_call") { triggerCall = "video"; continue; }
             if (p.mediaType === "accept_red_packet" || p.mediaType === "decline_red_packet"
@@ -3184,6 +3206,43 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     session.customCharAvatarDesc = avatarDesc;
                     window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
                     showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                }
+                continue;
+            }
+            // 角色主动拉黑用户：[拉黑对方]。单聊才生效，追加一段新的拉黑区间（复用「我方拉黑角色」同一套字段）
+            if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "block_user" && !session.isGroup) {
+                if (!session.isBlockedByChar) {
+                    const nowIso = new Date().toISOString();
+                    const periods = [...(session.blockedByCharPeriods || [])];
+                    periods.push({ start: nowIso });
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id
+                        ? { ...s, isBlockedByChar: true, blockedByCharAt: nowIso, blockedByCharPeriods: periods }
+                        : s);
+                    saveChatSessions(nextSessions);
+                    session.isBlockedByChar = true;
+                    session.blockedByCharAt = nowIso;
+                    session.blockedByCharPeriods = periods;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                }
+                continue;
+            }
+            // 角色主动解除拉黑：[解除拉黑]。关闭最后一个未结束的区间
+            if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "unblock_user" && !session.isGroup) {
+                if (session.isBlockedByChar) {
+                    const nowIso = new Date().toISOString();
+                    const periods = [...(session.blockedByCharPeriods || [])];
+                    if (periods.length > 0 && !periods[periods.length - 1].end) {
+                        periods[periods.length - 1] = { ...periods[periods.length - 1], end: nowIso };
+                    }
+                    const allSessions = loadChatSessions();
+                    const nextSessions = allSessions.map(s => s.id === session.id
+                        ? { ...s, isBlockedByChar: false, blockedByCharPeriods: periods }
+                        : s);
+                    saveChatSessions(nextSessions);
+                    session.isBlockedByChar = false;
+                    session.blockedByCharPeriods = periods;
+                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
                 }
                 continue;
             }
@@ -6223,6 +6282,15 @@ function formatCallDurationDisplay(durationStr: string): string {
                         ...(isFavoriteSelected ? { "data-selected": "" } : {}),
                     } : {};
 
+                    // 拉黑拒收：消息创建时间落在某一段"拉黑区间"内就标记拒收，与当前是否仍处于
+                    // 拉黑状态无关——这样移出黑名单后，拉黑期间产生的历史消息仍保留标记，不会被抹掉，
+                    // 而拉回来之后新产生的消息（不落在任何区间内）不再标记。
+                    // 单聊才有意义；群聊/系统消息/撤回/空气泡不参与判定（没有气泡可挂提示）。
+                    const isBlockedBubble = !session.isGroup && uiRole(msg) !== "system" && !msg.isRetracted && !isEmptyBubble && (
+                        (msg.role !== "user" && isInBlockedPeriod(session.blacklistPeriods, msg.createdAt)) ||
+                        (msg.role === "user" && isInBlockedPeriod(session.blockedByCharPeriods, msg.createdAt))
+                    );
+
                     return (
                         <div key={msg.id} className="flex flex-col gap-4" {...(hiddenEmpty ? { style: { display: "none" } } : {})} {...(isEmptyBubble && renderMsg.reasoningText && !showTime ? { "data-reasoning-only": "" } : {})}>
                             {showTime && (
@@ -6396,9 +6464,14 @@ function formatCallDurationDisplay(durationStr: string): string {
                                             )
                                         )}
                                         {!isSilentThought && !isEmptyBubble && <div
-                                            className={`chat-msg-content-wrap flex flex-col min-w-0 max-w-[70%] ${isStandaloneHtmlPreview ? "chat-msg-content-wrap-html" : ""}`}
+                                            className={`chat-msg-content-wrap flex flex-col min-w-0 max-w-[70%] relative ${isStandaloneHtmlPreview ? "chat-msg-content-wrap-html" : ""}`}
+                                            data-ui={msg.role === "user" ? "content-wrap-user" : "content-wrap-bot"}
                                             {...(isStandaloneHtmlPreview ? { "data-html": "true" } : {})}
+                                            {...(isBlockedBubble ? { "data-blocked": "" } : {})}
                                         >
+                                            {isBlockedBubble && (
+                                                <span className="msg-blocked-icon" aria-label="消息被拒收" title="消息被拒收">!</span>
+                                            )}
                                             {session.isGroup && msg.role !== "user" && (
                                                 <span className="chat-group-sender-name">{msg.senderName || ""}{renderGroupRoleBadge(msg.senderCharacterId)}</span>
                                             )}
@@ -6474,6 +6547,11 @@ function formatCallDurationDisplay(durationStr: string): string {
                                     </>
                                 )}
                             </div>
+                            {isBlockedBubble && (
+                                <div className="flex justify-center w-full">
+                                    <span className="msg-blocked-notice">消息已发出，但被对方拒收了。</span>
+                                </div>
+                            )}
                             {/* Voice message: text transcription bubble */}
                             {renderMsg.mediaType === "audio" && voiceTextIds.has(msg.id) && renderMsg.mediaData?.label && (
                                 <div className={`chat-msg-wrapper`} data-role={uiRole(msg)} style={{ marginTop: -12 }}>
@@ -6685,8 +6763,22 @@ function formatCallDurationDisplay(durationStr: string): string {
 	                onCloseTheaterMode={closeTheaterMode}
 	                onOpenRichModal={(modal) => { setShowPlusMenu(false); setRichModal(modal); }}
                 onOpenCustomPlusAction={handleOpenCustomPlusAction}
-                onStartVideoCall={() => { cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVideoCall(true); }}
-                onStartVoiceCall={() => { cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVoiceCall(true); }}
+                onStartVideoCall={() => {
+                    if (session.isBlacklisted || session.isBlockedByChar) {
+                        window.dispatchEvent(new CustomEvent(CHAT_PLUGIN_TOAST_EVENT, { detail: { text: session.isBlockedByChar ? "对方已将你拉黑，无法发起视频通话" : "已拉黑该联系人，无法发起视频通话" } }));
+                        setShowPlusMenu(false);
+                        return;
+                    }
+                    cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVideoCall(true);
+                }}
+                onStartVoiceCall={() => {
+                    if (session.isBlacklisted || session.isBlockedByChar) {
+                        window.dispatchEvent(new CustomEvent(CHAT_PLUGIN_TOAST_EVENT, { detail: { text: session.isBlockedByChar ? "对方已将你拉黑，无法发起语音通话" : "已拉黑该联系人，无法发起语音通话" } }));
+                        setShowPlusMenu(false);
+                        return;
+                    }
+                    cancelFollowUp(session.id); setShowPlusMenu(false); setCallInitiator("user"); setShowVoiceCall(true);
+                }}
                 onSendText={handleSendText}
                 onStopGeneration={clearStuckGeneration}
                 onTriggerAIResponse={triggerAIResponse}
