@@ -3057,6 +3057,15 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             filteredParts.push(part);
             afterPublishEffects.push(afterPublish);
         };
+        // 拉黑期间的静默回复模式：这一轮如果不是"正在触发拉黑/解封决定"的那一轮，
+        // 且角色当前仍处于拉黑我方的状态，这一轮的所有内容（文字、富媒体、通话发起等）都要被
+        // 屏蔽——角色不会生成任何可见回复，直到自己决定输出 [解除拉黑]。是否要在拉黑那一刻
+        // 配一句台词由人设自己决定：只有本轮确实包含 [拉黑对方]/[解除拉黑] 指令时，
+        // 才允许该轮正常显示内容（见下方 for 循环开头的 shouldSilenceForBlockedByChar 判断）。
+        const isDecidingBlockThisRound = !session.isGroup && parts.some(p =>
+            p.mediaType === "tool_notice" && (p.mediaData?.customActionType === "block_user" || p.mediaData?.customActionType === "unblock_user")
+        );
+        const shouldSilenceForBlockedByChar = !session.isGroup && session.isBlockedByChar === true && !isDecidingBlockThisRound;
         // 角色自然对白换头像兼容兜底（口头配合与指令执行）：
         if (session.contactId && !session.isGroup) {
             // 1. 处理结构化指令：[换自己头像:xxx] 或 [换对方头像:xxx]
@@ -3126,6 +3135,11 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
         for (const p of parts) {
             throwIfGenerationStopped(options);
+            // 拉黑期间静默：本轮不是"正在决定拉黑/解封"时，角色当前仍处于拉黑我方状态——
+            // 不管是文字、红包、通话发起还是换头像，一律视为"不回应"，直接丢弃，不进 filteredParts。
+            // isDecidingBlockThisRound 已经把 [拉黑对方]/[解除拉黑] 指令所在的那一轮排除在外，
+            // 所以这里永远不会误伤正在触发拉黑/解封决定的那条指令本身。
+            if (shouldSilenceForBlockedByChar) continue;
             if (p.mediaType === "voice_call") { triggerCall = "voice"; continue; }
             if (p.mediaType === "video_call") { triggerCall = "video"; continue; }
             if (p.mediaType === "accept_red_packet" || p.mediaType === "decline_red_packet"
