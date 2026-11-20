@@ -3267,19 +3267,32 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 });
                 continue;
             }
-            // 角色换头像动作支持：[换头像:描述]
+            // 角色换头像动作支持：[换头像:描述] 或 [换头像:第N张:描述]（合并图集挑图）
             if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "change_avatar") {
                 const avatarDesc = p.mediaData?.avatarDesc || "新头像";
-                let avatarUrl = p.mediaData?.avatarUrl || "";
+                const pickIndex = p.mediaData?.avatarPickIndex;
+                let avatarUrl = pickIndex === undefined ? (p.mediaData?.avatarUrl || "") : "";
                 if (!avatarUrl && session.contactId) {
-                    const vault = getCharacterChatAvatars(session.contactId);
+                    // 有明确序号时（合并图集挑图）不要按描述命中旧头像库——避免抢在"从图集取新图"之前
+                    const vault = pickIndex === undefined ? getCharacterChatAvatars(session.contactId) : [];
                     const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
                     if (matched) {
                         avatarUrl = matched.url;
                     } else {
                         const freshMsgs = loadChatMessages(session.id);
-                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
-                        if (lastUserImg?.mediaUrl) avatarUrl = lastUserImg.mediaUrl;
+                        const recentUserImgMsgs = [...freshMsgs].reverse()
+                            .filter(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")))
+                            .slice(0, 3);
+                        const lastUserImg = recentUserImgMsgs[0];
+                        if (lastUserImg) {
+                            const images = lastUserImg.mediaData?.images;
+                            if (images && images.length >= 2) {
+                                const idx = pickIndex !== undefined && pickIndex >= 0 && pickIndex < images.length ? pickIndex : 0;
+                                avatarUrl = images[idx]?.url || lastUserImg.mediaUrl || "";
+                            } else {
+                                avatarUrl = lastUserImg.mediaUrl || "";
+                            }
+                        }
                     }
                 }
                 if (avatarUrl && session.contactId) {
