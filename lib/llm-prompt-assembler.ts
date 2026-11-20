@@ -1097,10 +1097,15 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
     }
 
     // 角色独立网络头像支持：如果用户最近发了图片，注入动作规则教 AI 换头像
-    const hasRecentUserImage = history.slice(-5).some(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
-    if (hasRecentUserImage) {
+    const recentUserImgMessages = history.slice(-5).filter(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+    if (recentUserImgMessages.length > 0) {
+        const lastImgMsg = recentUserImgMessages[recentUserImgMessages.length - 1];
+        const hasMultiplePhotos = Boolean(lastImgMsg.mediaData?.images && lastImgMsg.mediaData.images.length >= 2);
+        const avatarActionNotice = hasMultiplePhotos
+            ? `【系统动作提醒】对方刚给你发了一组多张照片（共${lastImgMsg.mediaData!.images!.length}张）并建议/让你挑选做头像。请你像真人一样看图，挑选其中你最喜欢或觉得最合适的一张换上。若你同意更换，请在回复末尾附带指令：[换头像:第N张:简短描述]（N为图片序号1~${lastImgMsg.mediaData!.images!.length}，例如：[换头像:第2张:这个雪景很浪漫] 或 [换头像:第1张:这只小猫超可爱]）。系统会准确提取该张图片换为你当前专属头像，该指令会被系统捕获执行，不会作为对话文本展示。`
+            : "【系统动作提醒】当对方在聊天中发了图片并建议/要求你更换头像，若你同意换上该头像，请在回复末尾附带指令：[换头像:简短描述]（例如：[换头像:捏脸灰发男] 或 [换头像:你送我的情头]）。系统会自动为你换上并显示专属头像，该指令会被系统捕获执行，不会作为对话文本展示。";
         blocks.push({
-            text: "【系统动作提醒】当对方在聊天中发了图片并建议/要求你更换头像，若你同意换上该头像，请在回复末尾附带指令：[换头像:简短描述]（例如：[换头像:捏脸灰发男] 或 [换头像:你送我的情头]）。系统会自动为你换上并显示专属头像，该指令会被系统捕获执行，不会作为对话文本展示。",
+            text: avatarActionNotice,
             role: "system",
             depth: 0,
             order: 9999,

@@ -98,7 +98,7 @@ import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
 import { addFavorite, addCombinedFavorite } from "@/lib/chat-favorites-storage";
 import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
-import { storeMediaBase64 } from "@/lib/media-cache-storage";
+import { storeMediaBase64, isMediaStoreRef, loadMediaBlob } from "@/lib/media-cache-storage";
 import type { PhotoInputItem } from "@/components/chat/rich-input-modals";
 
 // ── Call system message detection ──────────────────────────
@@ -3009,6 +3009,24 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
      * 文字记忆兜底——所以这里只是"事后补全记忆"，不影响当前这轮回复的显示内容
      * （标记本身已经在 parseAIResponse 里被剥离，不会出现在聊天气泡里）。
      */
+    /** 将可能为 media-store:// 协议的头像链接解析还原为持久可用的 Base64 DataURL */
+    const resolveAvatarUrlForStorage = async (rawUrl: string): Promise<string> => {
+        if (!rawUrl) return "";
+        if (!isMediaStoreRef(rawUrl)) return rawUrl;
+        try {
+            const loaded = await loadMediaBlob(rawUrl);
+            if (!loaded?.blob) return rawUrl;
+            return await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : rawUrl);
+                reader.onerror = () => resolve(rawUrl);
+                reader.readAsDataURL(loaded.blob);
+            });
+        } catch {
+            return rawUrl;
+        }
+    };
+
     const applyPhotoRecognitionMemory = (rawText: string) => {
         const result = extractPhotoRecognition(rawText);
         if (!result) return;
@@ -3096,12 +3114,30 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             for (const p of rawParts) {
                 if (!p.content) continue;
 
-                // 角色给自己换头像
+                // 角色给自己换头像：支持 [换头像:描述] 以及合并多图时的 [换头像:第N张:描述]
                 const selfMatch = p.content.match(/\[(?:换自己头像|换自己|换我的头像|换头像)[:：](.+?)\]/);
                 if (selfMatch) {
-                    const targetName = selfMatch[1].trim();
+                    const rawArg = selfMatch[1].trim();
                     p.content = p.content.replace(selfMatch[0], "").trim();
-                    const matched = charAvatars.find(a => a.description === targetName) || charAvatars.find(a => a.description.includes(targetName));
+
+                    let pickIndex: number | null = null;
+                    let targetName = rawArg;
+                    // 解析 [换头像:第N张:描述] ——必须明确写「第N张」，不认单纯数字开头，
+                    // 避免把角色自己写的描述（比如"1张自拍"之类凑巧数字开头的话）误判成序号。
+                    const pickMatch = rawArg.match(/^第\s*(\d+)\s*张[:：\s]*(.*)$/);
+                    if (pickMatch) {
+                        const num = parseInt(pickMatch[1], 10);
+                        if (!Number.isNaN(num) && num > 0) {
+                            pickIndex = num - 1; // 0-based
+                        }
+                        targetName = pickMatch[2]?.trim() || `第${num}张图片`;
+                    }
+
+                    // 优先看头像库是否有匹配描述的存量头像（仅在没有指定序号时才按描述命中存量，
+                    // 避免"挑第N张"这种带序号的新选图被旧头像库里相近描述的记录误命中抢先）
+                    const matched = pickIndex === null
+                        ? (charAvatars.find(a => a.description === targetName) || charAvatars.find(a => a.description.includes(targetName)))
+                        : undefined;
                     if (matched) {
                         const allSessions = loadChatSessions();
                         const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: matched.url, customCharAvatarDesc: matched.description } : s);
@@ -3110,6 +3146,39 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         session.customCharAvatarDesc = matched.description;
                         window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
                         showChatToast(`${charN}换上了「${matched.description}」`);
+                    } else {
+                        // 从"这一轮触发前最近的一条用户图片消息"里提取目标图——不要无限制往前找，
+                        // 避免撞到很久以前的某条历史图片/合并图集，导致取错完全不相关的图。
+                        const freshMsgs = loadChatMessages(session.id);
+                        const recentUserImgMsgs = [...freshMsgs].reverse()
+                            .filter(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")))
+                            .slice(0, 3);
+                        const lastUserImg = recentUserImgMsgs[0];
+                        let pickedUrl = "";
+                        if (lastUserImg) {
+                            const images = lastUserImg.mediaData?.images;
+                            if (images && images.length >= 2) {
+                                const idx = pickIndex !== null && pickIndex >= 0 && pickIndex < images.length ? pickIndex : 0;
+                                pickedUrl = images[idx]?.url || lastUserImg.mediaUrl || "";
+                            } else {
+                                pickedUrl = lastUserImg.mediaUrl || "";
+                            }
+                        }
+
+                        if (pickedUrl) {
+                            const finalDesc = targetName || "新选头像";
+                            void resolveAvatarUrlForStorage(pickedUrl).then((resolvedUrl) => {
+                                if (!resolvedUrl || !session.contactId) return;
+                                addCharacterChatAvatar(session.contactId, resolvedUrl, finalDesc, "user_sent");
+                                const allSessions = loadChatSessions();
+                                const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: resolvedUrl, customCharAvatarDesc: finalDesc } : s);
+                                saveChatSessions(nextSessions);
+                                session.customCharAvatar = resolvedUrl;
+                                session.customCharAvatarDesc = finalDesc;
+                                window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                                showChatToast(`${charN}收藏并换上了「${finalDesc}」`);
+                            });
+                        }
                     }
                 }
 
@@ -3140,16 +3209,19 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 const userRecentlyAsked = lastUserMessages.some(m => m.role === "user" && /(?:换这个头像|换头像|换上这个|用这个做头像|换情头|情头|换这个)/.test(m.content));
                 const lastUserImg = lastUserMessages.find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
                 if (userRecentlyAsked && lastUserImg?.mediaUrl) {
-                    const avatarUrl = lastUserImg.mediaUrl;
+                    const rawAvatarUrl = lastUserImg.mediaUrl;
                     const avatarDesc = lastUserImg.mediaData?.label || "你送我的情头";
-                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
-                    const allSessions = loadChatSessions();
-                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
-                    saveChatSessions(nextSessions);
-                    session.customCharAvatar = avatarUrl;
-                    session.customCharAvatarDesc = avatarDesc;
-                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
-                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    void resolveAvatarUrlForStorage(rawAvatarUrl).then((avatarUrl) => {
+                        if (!avatarUrl || !session.contactId) return;
+                        addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
+                        const allSessions = loadChatSessions();
+                        const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
+                        saveChatSessions(nextSessions);
+                        session.customCharAvatar = avatarUrl;
+                        session.customCharAvatarDesc = avatarDesc;
+                        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                        showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    });
                 }
             }
         }
@@ -3195,30 +3267,47 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 });
                 continue;
             }
-            // 角色换头像动作支持：[换头像:描述]
+            // 角色换头像动作支持：[换头像:描述] 或 [换头像:第N张:描述]（合并图集挑图）
             if (p.mediaType === "tool_notice" && p.mediaData?.customActionType === "change_avatar") {
                 const avatarDesc = p.mediaData?.avatarDesc || "新头像";
-                let avatarUrl = p.mediaData?.avatarUrl || "";
+                const pickIndex = p.mediaData?.avatarPickIndex;
+                let avatarUrl = pickIndex === undefined ? (p.mediaData?.avatarUrl || "") : "";
                 if (!avatarUrl && session.contactId) {
-                    const vault = getCharacterChatAvatars(session.contactId);
+                    // 有明确序号时（合并图集挑图）不要按描述命中旧头像库——避免抢在"从图集取新图"之前
+                    const vault = pickIndex === undefined ? getCharacterChatAvatars(session.contactId) : [];
                     const matched = vault.find(a => a.description.includes(avatarDesc) || avatarDesc.includes(a.description));
                     if (matched) {
                         avatarUrl = matched.url;
                     } else {
                         const freshMsgs = loadChatMessages(session.id);
-                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
-                        if (lastUserImg?.mediaUrl) avatarUrl = lastUserImg.mediaUrl;
+                        const recentUserImgMsgs = [...freshMsgs].reverse()
+                            .filter(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")))
+                            .slice(0, 3);
+                        const lastUserImg = recentUserImgMsgs[0];
+                        if (lastUserImg) {
+                            const images = lastUserImg.mediaData?.images;
+                            if (images && images.length >= 2) {
+                                const idx = pickIndex !== undefined && pickIndex >= 0 && pickIndex < images.length ? pickIndex : 0;
+                                avatarUrl = images[idx]?.url || lastUserImg.mediaUrl || "";
+                            } else {
+                                avatarUrl = lastUserImg.mediaUrl || "";
+                            }
+                        }
                     }
                 }
                 if (avatarUrl && session.contactId) {
-                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
-                    const allSessions = loadChatSessions();
-                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
-                    saveChatSessions(nextSessions);
-                    session.customCharAvatar = avatarUrl;
-                    session.customCharAvatarDesc = avatarDesc;
-                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
-                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    const rawAvatarUrl = avatarUrl;
+                    void resolveAvatarUrlForStorage(rawAvatarUrl).then((resolvedUrl) => {
+                        if (!resolvedUrl || !session.contactId) return;
+                        addCharacterChatAvatar(session.contactId, resolvedUrl, avatarDesc, "user_sent");
+                        const allSessions = loadChatSessions();
+                        const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: resolvedUrl, customCharAvatarDesc: avatarDesc } : s);
+                        saveChatSessions(nextSessions);
+                        session.customCharAvatar = resolvedUrl;
+                        session.customCharAvatarDesc = avatarDesc;
+                        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                        showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    });
                 }
                 continue;
             }

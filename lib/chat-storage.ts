@@ -294,6 +294,7 @@ export type ChatMessage = {
         customActionType?: string;
         avatarUrl?: string;  // customActionType=change_avatar 时：目标头像图片 URL
         avatarDesc?: string; // customActionType=change_avatar 时：目标头像描述
+        avatarPickIndex?: number; // customActionType=change_avatar 时：合并图集中挑选第几张（0-based），未指定则取封面/第一张
     };
     isTyping?: boolean; // temporary flag for UI rendering
     statusPanel?: string; // AI display-only status content from [状态栏] tags

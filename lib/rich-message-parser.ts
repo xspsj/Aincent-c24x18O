@@ -249,11 +249,16 @@ const RICH_PATTERNS: {
         }),
     },
     {
-        // [换头像:描述] 或 [换头像:图片URL:描述] — 角色主动换上网络头像
+        // [换头像:描述] 或 [换头像:图片URL:描述] 或 [换头像:第N张:描述]（合并图集挑图）
+        // — 角色主动换上网络头像
         regex: new RegExp(`\\[换头像${C}(?:([^\\]：:]+)[：:])?([^\\]]+)\\]`),
         build: (m) => {
-            const maybeUrl = m[1]?.trim() || "";
+            const firstArg = m[1]?.trim() || "";
             const desc = m[2]?.trim() || "";
+            // "第N张" 是序号指令，不是图片 URL——单独识别出来，避免被误存成 avatarUrl
+            const pickMatch = firstArg.match(/^第\s*(\d+)\s*张$/);
+            const pickIndex = pickMatch ? parseInt(pickMatch[1], 10) - 1 : undefined;
+            const maybeUrl = pickMatch ? "" : firstArg;
             return {
                 content: "",
                 mediaType: "tool_notice" as const,
@@ -262,6 +267,7 @@ const RICH_PATTERNS: {
                     customActionType: "change_avatar",
                     avatarUrl: maybeUrl,
                     avatarDesc: desc,
+                    ...(pickIndex !== undefined && pickIndex >= 0 ? { avatarPickIndex: pickIndex } : {}),
                 },
             };
         },
