@@ -3122,18 +3122,22 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 
                     let pickIndex: number | null = null;
                     let targetName = rawArg;
-                    // 解析 [换头像:第N张:描述] 或 [换头像:第N张]
-                    const pickMatch = rawArg.match(/^(?:第\s*(\d+)\s*张|(\d+))[:：\s]*(.*)$/);
+                    // 解析 [换头像:第N张:描述] ——必须明确写「第N张」，不认单纯数字开头，
+                    // 避免把角色自己写的描述（比如"1张自拍"之类凑巧数字开头的话）误判成序号。
+                    const pickMatch = rawArg.match(/^第\s*(\d+)\s*张[:：\s]*(.*)$/);
                     if (pickMatch) {
-                        const num = parseInt(pickMatch[1] || pickMatch[2], 10);
+                        const num = parseInt(pickMatch[1], 10);
                         if (!Number.isNaN(num) && num > 0) {
                             pickIndex = num - 1; // 0-based
                         }
-                        targetName = pickMatch[3]?.trim() || `第${num}张图片`;
+                        targetName = pickMatch[2]?.trim() || `第${num}张图片`;
                     }
 
-                    // 优先看头像库是否有匹配描述的存量头像
-                    const matched = charAvatars.find(a => a.description === targetName) || charAvatars.find(a => a.description.includes(targetName));
+                    // 优先看头像库是否有匹配描述的存量头像（仅在没有指定序号时才按描述命中存量，
+                    // 避免"挑第N张"这种带序号的新选图被旧头像库里相近描述的记录误命中抢先）
+                    const matched = pickIndex === null
+                        ? (charAvatars.find(a => a.description === targetName) || charAvatars.find(a => a.description.includes(targetName)))
+                        : undefined;
                     if (matched) {
                         const allSessions = loadChatSessions();
                         const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: matched.url, customCharAvatarDesc: matched.description } : s);
@@ -3143,9 +3147,13 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
                         showChatToast(`${charN}换上了「${matched.description}」`);
                     } else {
-                        // 从最近用户发的图片中提取目标图
+                        // 从"这一轮触发前最近的一条用户图片消息"里提取目标图——不要无限制往前找，
+                        // 避免撞到很久以前的某条历史图片/合并图集，导致取错完全不相关的图。
                         const freshMsgs = loadChatMessages(session.id);
-                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+                        const recentUserImgMsgs = [...freshMsgs].reverse()
+                            .filter(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")))
+                            .slice(0, 3);
+                        const lastUserImg = recentUserImgMsgs[0];
                         let pickedUrl = "";
                         if (lastUserImg) {
                             const images = lastUserImg.mediaData?.images;
