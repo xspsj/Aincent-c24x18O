@@ -3114,11 +3114,25 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             for (const p of rawParts) {
                 if (!p.content) continue;
 
-                // 角色给自己换头像
+                // 角色给自己换头像：支持 [换头像:描述] 以及合并多图时的 [换头像:第N张:描述]
                 const selfMatch = p.content.match(/\[(?:换自己头像|换自己|换我的头像|换头像)[:：](.+?)\]/);
                 if (selfMatch) {
-                    const targetName = selfMatch[1].trim();
+                    const rawArg = selfMatch[1].trim();
                     p.content = p.content.replace(selfMatch[0], "").trim();
+
+                    let pickIndex: number | null = null;
+                    let targetName = rawArg;
+                    // 解析 [换头像:第N张:描述] 或 [换头像:第N张]
+                    const pickMatch = rawArg.match(/^(?:第\s*(\d+)\s*张|(\d+))[:：\s]*(.*)$/);
+                    if (pickMatch) {
+                        const num = parseInt(pickMatch[1] || pickMatch[2], 10);
+                        if (!Number.isNaN(num) && num > 0) {
+                            pickIndex = num - 1; // 0-based
+                        }
+                        targetName = pickMatch[3]?.trim() || `第${num}张图片`;
+                    }
+
+                    // 优先看头像库是否有匹配描述的存量头像
                     const matched = charAvatars.find(a => a.description === targetName) || charAvatars.find(a => a.description.includes(targetName));
                     if (matched) {
                         const allSessions = loadChatSessions();
@@ -3128,6 +3142,35 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         session.customCharAvatarDesc = matched.description;
                         window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
                         showChatToast(`${charN}换上了「${matched.description}」`);
+                    } else {
+                        // 从最近用户发的图片中提取目标图
+                        const freshMsgs = loadChatMessages(session.id);
+                        const lastUserImg = [...freshMsgs].reverse().find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
+                        let pickedUrl = "";
+                        if (lastUserImg) {
+                            const images = lastUserImg.mediaData?.images;
+                            if (images && images.length >= 2) {
+                                const idx = pickIndex !== null && pickIndex >= 0 && pickIndex < images.length ? pickIndex : 0;
+                                pickedUrl = images[idx]?.url || lastUserImg.mediaUrl || "";
+                            } else {
+                                pickedUrl = lastUserImg.mediaUrl || "";
+                            }
+                        }
+
+                        if (pickedUrl) {
+                            const finalDesc = targetName || "新选头像";
+                            void resolveAvatarUrlForStorage(pickedUrl).then((resolvedUrl) => {
+                                if (!resolvedUrl || !session.contactId) return;
+                                addCharacterChatAvatar(session.contactId, resolvedUrl, finalDesc, "user_sent");
+                                const allSessions = loadChatSessions();
+                                const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: resolvedUrl, customCharAvatarDesc: finalDesc } : s);
+                                saveChatSessions(nextSessions);
+                                session.customCharAvatar = resolvedUrl;
+                                session.customCharAvatarDesc = finalDesc;
+                                window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                                showChatToast(`${charN}收藏并换上了「${finalDesc}」`);
+                            });
+                        }
                     }
                 }
 
