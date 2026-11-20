@@ -98,7 +98,7 @@ import { CHAT_PLUGIN_TOAST_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
 import { addFavorite, addCombinedFavorite } from "@/lib/chat-favorites-storage";
 import { ChatFavoritesPanel } from "@/components/chat/chat-favorites-panel";
-import { storeMediaBase64 } from "@/lib/media-cache-storage";
+import { storeMediaBase64, isMediaStoreRef, loadMediaBlob } from "@/lib/media-cache-storage";
 import type { PhotoInputItem } from "@/components/chat/rich-input-modals";
 
 // ── Call system message detection ──────────────────────────
@@ -3009,6 +3009,24 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
      * 文字记忆兜底——所以这里只是"事后补全记忆"，不影响当前这轮回复的显示内容
      * （标记本身已经在 parseAIResponse 里被剥离，不会出现在聊天气泡里）。
      */
+    /** 将可能为 media-store:// 协议的头像链接解析还原为持久可用的 Base64 DataURL */
+    const resolveAvatarUrlForStorage = async (rawUrl: string): Promise<string> => {
+        if (!rawUrl) return "";
+        if (!isMediaStoreRef(rawUrl)) return rawUrl;
+        try {
+            const loaded = await loadMediaBlob(rawUrl);
+            if (!loaded?.blob) return rawUrl;
+            return await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : rawUrl);
+                reader.onerror = () => resolve(rawUrl);
+                reader.readAsDataURL(loaded.blob);
+            });
+        } catch {
+            return rawUrl;
+        }
+    };
+
     const applyPhotoRecognitionMemory = (rawText: string) => {
         const result = extractPhotoRecognition(rawText);
         if (!result) return;
@@ -3140,16 +3158,19 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 const userRecentlyAsked = lastUserMessages.some(m => m.role === "user" && /(?:换这个头像|换头像|换上这个|用这个做头像|换情头|情头|换这个)/.test(m.content));
                 const lastUserImg = lastUserMessages.find(m => m.role === "user" && (m.mediaType === "image" || (m.mediaType === "media_file" && m.mediaData?.fileType === "image")));
                 if (userRecentlyAsked && lastUserImg?.mediaUrl) {
-                    const avatarUrl = lastUserImg.mediaUrl;
+                    const rawAvatarUrl = lastUserImg.mediaUrl;
                     const avatarDesc = lastUserImg.mediaData?.label || "你送我的情头";
-                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
-                    const allSessions = loadChatSessions();
-                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
-                    saveChatSessions(nextSessions);
-                    session.customCharAvatar = avatarUrl;
-                    session.customCharAvatarDesc = avatarDesc;
-                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
-                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    void resolveAvatarUrlForStorage(rawAvatarUrl).then((avatarUrl) => {
+                        if (!avatarUrl || !session.contactId) return;
+                        addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
+                        const allSessions = loadChatSessions();
+                        const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
+                        saveChatSessions(nextSessions);
+                        session.customCharAvatar = avatarUrl;
+                        session.customCharAvatarDesc = avatarDesc;
+                        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                        showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    });
                 }
             }
         }
@@ -3211,14 +3232,18 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     }
                 }
                 if (avatarUrl && session.contactId) {
-                    addCharacterChatAvatar(session.contactId, avatarUrl, avatarDesc, "user_sent");
-                    const allSessions = loadChatSessions();
-                    const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: avatarUrl, customCharAvatarDesc: avatarDesc } : s);
-                    saveChatSessions(nextSessions);
-                    session.customCharAvatar = avatarUrl;
-                    session.customCharAvatarDesc = avatarDesc;
-                    window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
-                    showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    const rawAvatarUrl = avatarUrl;
+                    void resolveAvatarUrlForStorage(rawAvatarUrl).then((resolvedUrl) => {
+                        if (!resolvedUrl || !session.contactId) return;
+                        addCharacterChatAvatar(session.contactId, resolvedUrl, avatarDesc, "user_sent");
+                        const allSessions = loadChatSessions();
+                        const nextSessions = allSessions.map(s => s.id === session.id ? { ...s, customCharAvatar: resolvedUrl, customCharAvatarDesc: avatarDesc } : s);
+                        saveChatSessions(nextSessions);
+                        session.customCharAvatar = resolvedUrl;
+                        session.customCharAvatarDesc = avatarDesc;
+                        window.dispatchEvent(new CustomEvent("chat-sessions-updated"));
+                        showChatToast(`已收藏并换上头像「${avatarDesc}」`);
+                    });
                 }
                 continue;
             }
