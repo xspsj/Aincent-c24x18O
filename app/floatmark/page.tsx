@@ -162,7 +162,10 @@ export default function FloatmarkHearthPage() {
     return (
         <div style={{
             minHeight: "100dvh",
-            padding: "24px 16px 40px",
+            maxHeight: "100dvh",
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
+            padding: "24px 16px 60px",
             background: "#0b0d12",
             color: "#e8eaf0",
             fontFamily: "-apple-system, sans-serif",
