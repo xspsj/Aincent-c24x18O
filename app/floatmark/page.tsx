@@ -57,12 +57,8 @@ export default function FloatmarkHearthPage() {
         }
         setToken("");
         loadMemoryIndex(selectedId).then(setEntries);
-        appendLog(`已切换到角色：${chars_find(chars, selectedId)}`);
+        setLog(prev => [`[${new Date().toLocaleTimeString()}] 已切换角色`, ...prev]);
     }, [selectedId]);
-
-    function chars_find(chars: Character[], id: string): string {
-        return chars.find(c => c.id === id)?.name || id;
-    }
 
     function appendLog(msg: string) {
         setLog(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
