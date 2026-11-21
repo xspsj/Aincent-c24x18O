@@ -14,22 +14,31 @@ import { saveFloatmarkRepoConfig, loadFloatmarkRepoConfig } from "@/lib/floatmar
 import { pushNewMemory, pullIndexIfNewer, getMemoryBody } from "@/lib/floatmark-sync";
 import { loadMemoryIndex } from "@/lib/floatmark-storage";
 import { testConnection } from "@/lib/floatmark-github-client";
+import { hydrateKvDb } from "@/lib/kv-db";
 
 export default function FloatmarkHearthPage() {
+    const [hydrated, setHydrated] = useState(false);
     const [characters, setCharacters] = useState<Character[]>([]);
     const [selectedId, setSelectedId] = useState<string>("");
     const [owner, setOwner] = useState("");
     const [repo, setRepo] = useState("");
     const [branch, setBranch] = useState("main");
     const [token, setToken] = useState("");
-    const [log, setLog] = useState<string[]>(["选择一个角色开始。"]);
+    const [log, setLog] = useState<string[]>(["正在加载本机数据…"]);
     const [entries, setEntries] = useState<FloatmarkIndexEntry[]>([]);
     const [bodyPreview, setBodyPreview] = useState<string>("");
 
+    // 这个页面是独立路由，不经过 MainApp 入口，所以要自己等一次 kv 水合完成，
+    // 否则 loadCharacters() 读到的内存缓存还是空的（角色数据实际在 IndexedDB 里，
+    // 水合完成前同步读取拿不到）。
     useEffect(() => {
-        const chars = loadCharacters();
-        setCharacters(chars);
-        if (chars.length > 0) setSelectedId(chars[0].id);
+        hydrateKvDb().finally(() => {
+            const chars = loadCharacters();
+            setCharacters(chars);
+            if (chars.length > 0) setSelectedId(chars[0].id);
+            setHydrated(true);
+            setLog(prev => [`已加载 ${chars.length} 个角色。`, ...prev]);
+        });
     }, []);
 
     useEffect(() => {
@@ -170,7 +179,8 @@ export default function FloatmarkHearthPage() {
 
             <label style={labelStyle}>选择角色</label>
             <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={inputStyle}>
-                {characters.length === 0 && <option value="">（没有找到任何角色）</option>}
+                {!hydrated && <option value="">加载中…</option>}
+                {hydrated && characters.length === 0 && <option value="">（没有找到任何角色，请先在聊天里创建一个角色）</option>}
                 {characters.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
