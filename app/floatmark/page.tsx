@@ -14,6 +14,7 @@ import { saveFloatmarkRepoConfig, loadFloatmarkRepoConfig } from "@/lib/floatmar
 import { pushNewMemory, pullIndexIfNewer, getMemoryBody } from "@/lib/floatmark-sync";
 import { loadMemoryIndex } from "@/lib/floatmark-storage";
 import { testConnection } from "@/lib/floatmark-github-client";
+import { previewMigration, migrateNativeMemoriesToFloatmark } from "@/lib/floatmark-migration";
 import { hydrateKvDb } from "@/lib/kv-db";
 
 export default function FloatmarkHearthPage() {
@@ -159,6 +160,38 @@ export default function FloatmarkHearthPage() {
         setBodyPreview(body ? `${body.content}\n\n心境：${body.reflection}` : "未找到正文");
     }
 
+    async function handleMigrate() {
+        const config = loadFloatmarkRepoConfig(selectedId);
+        if (!config || !config.token) return appendLog("请先保存配置");
+
+        appendLog("统计存量记忆数量中…");
+        const preview = await previewMigration(selectedId);
+        if (preview.totalCount === 0) {
+            appendLog("该角色没有原生长期/核心记忆，无需迁移。");
+            return;
+        }
+        const confirmed = window.confirm(
+            `${currentCharacterName()} 当前有 ${preview.coreCount} 条核心记忆、`
+            + `${preview.longTermCount} 条长期记忆（共 ${preview.totalCount} 条）。\n\n`
+            + `迁移只是把它们复制一份到浮痕仓库，不会删除原生记忆。确认开始迁移？`
+        );
+        if (!confirmed) {
+            appendLog("已取消迁移。");
+            return;
+        }
+
+        appendLog(`开始迁移，共 ${preview.totalCount} 条…`);
+        const result = await migrateNativeMemoriesToFloatmark(config, (done, total) => {
+            if (done % 5 === 0 || done === total) appendLog(`迁移进度 ${done}/${total}`);
+        });
+        if (result.ok) {
+            appendLog(`迁移完成，共 ${result.migratedCount} 条（原生记忆保持不变）`);
+            loadMemoryIndex(selectedId).then(setEntries);
+        } else {
+            appendLog("迁移失败: " + result.error);
+        }
+    }
+
     return (
         <div style={{
             minHeight: "100dvh",
@@ -204,6 +237,9 @@ export default function FloatmarkHearthPage() {
             <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <button onClick={handlePushTestMemory} style={btnStyle}>推送测试记忆</button>
                 <button onClick={handlePull} style={btnStyle}>拉取同步</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <button onClick={handleMigrate} style={{ ...btnStyle, background: "#5a4a2a" }}>迁移现有记忆</button>
             </div>
 
             <div style={{ marginTop: 16 }}>
