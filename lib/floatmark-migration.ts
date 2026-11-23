@@ -27,7 +27,7 @@ function toEpochMs(createdAt: string): number {
     return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
-function convertEntry(entry: MemoryEntry): { indexEntry: FloatmarkIndexEntry; memory: FloatmarkMemory } {
+function convertEntry(entry: MemoryEntry, migratedAtMs: number): { indexEntry: FloatmarkIndexEntry; memory: FloatmarkMemory } {
     const createdAtMs = toEpochMs(entry.createdAt);
     const importance = scaleImportance(entry.importance);
     const summary = entry.content.length > 40 ? entry.content.slice(0, 40) + "…" : entry.content;
@@ -40,7 +40,11 @@ function convertEntry(entry: MemoryEntry): { indexEntry: FloatmarkIndexEntry; me
         emotionIntensity: 0,          // 迁移数据没有情绪烈度记录，默认 0，不触发情绪锁
         emotionLock: false,
         accessCount: 0,
-        lastRecalledAt: createdAtMs,
+        // 用迁移发生的时刻，不是记忆原本发生的时刻——相当于角色把这件事重新
+        // 想了一遍、正式收进浮痕体系。否则很久以前发生的旧记忆会在刚迁移进来
+        // 的瞬间就已经按"事发已久"被衰减到接近 0，明显不符合"迁移=重新想起"
+        // 这个语义，之前实测确实出现过重要度 8 分却算出活跃度 0.23 的情况。
+        lastRecalledAt: migratedAtMs,
         tags: [],
         relatedTo: [],
         trigger: "migrated",
@@ -107,7 +111,7 @@ export async function migrateNativeMemoriesToFloatmark(
         return { ok: true, migratedCount: 0 };
     }
 
-    const converted = nativeEntries.map(convertEntry);
+    const converted = nativeEntries.map(entry => convertEntry(entry, Date.now()));
     const total = converted.length;
     let done = 0;
 

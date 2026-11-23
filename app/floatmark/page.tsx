@@ -12,11 +12,11 @@ import { loadCharacters } from "@/lib/character-storage";
 import type { FloatmarkRepoConfig, FloatmarkIndexEntry, FloatmarkMemory, FloatmarkFallbackConfig } from "@/lib/floatmark-types";
 import { saveFloatmarkRepoConfig, loadFloatmarkRepoConfig } from "@/lib/floatmark-config-storage";
 import { loadFloatmarkFallbackConfig, saveFloatmarkFallbackConfig } from "@/lib/floatmark-config-storage";
-import { pushNewMemory, pullIndexIfNewer, getMemoryBody } from "@/lib/floatmark-sync";
+import { pushNewMemory, pullIndexIfNewer, getMemoryBody, pushIndexOnly } from "@/lib/floatmark-sync";
 import { loadMemoryIndex } from "@/lib/floatmark-storage";
 import { testConnection } from "@/lib/floatmark-github-client";
 import { previewMigration, migrateNativeMemoriesToFloatmark } from "@/lib/floatmark-migration";
-import { rankByActivation, type RankedMemory } from "@/lib/floatmark-activation";
+import { rankByActivation, resetRecalledAtToNow, type RankedMemory } from "@/lib/floatmark-activation";
 import { checkFallbackTrigger, incrementTurnCount, resetFallbackCounters } from "@/lib/floatmark-fallback";
 import { hydrateKvDb } from "@/lib/kv-db";
 
@@ -230,6 +230,21 @@ export default function FloatmarkHearthPage() {
         appendLog("兜底计数器已手动清零重新计时。");
     }
 
+    async function handleResetRecalledAt() {
+        const config = loadFloatmarkRepoConfig(selectedId);
+        if (!config || !config.token) return appendLog("请先保存配置");
+        if (entries.length === 0) return appendLog("当前没有可修复的记忆");
+        appendLog(`修复旧测试数据：把 ${entries.length} 条记忆的唤醒时间重置为现在…`);
+        const fixed = entries.map(e => resetRecalledAtToNow(e));
+        const result = await pushIndexOnly(config, fixed, "浮痕修复：重置测试数据的唤醒时间");
+        if (result.ok) {
+            appendLog("已修复，活跃度分数应恢复正常。");
+            loadMemoryIndex(selectedId).then(setEntries);
+        } else {
+            appendLog("修复失败: " + result.error);
+        }
+    }
+
     return (
         <div style={{
             minHeight: "100dvh",
@@ -278,6 +293,9 @@ export default function FloatmarkHearthPage() {
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <button onClick={handleMigrate} style={{ ...btnStyle, background: "#5a4a2a" }}>迁移现有记忆</button>
+                <button onClick={handleResetRecalledAt} style={{ ...btnStyle, background: "#3a4a4a" }}>
+                    修复旧测试数据的唤醒时间
+                </button>
             </div>
 
             {fallbackConfig && (

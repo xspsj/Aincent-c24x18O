@@ -59,11 +59,24 @@ export async function getMemoryBody(config: FloatmarkRepoConfig, id: string): Pr
 }
 
 /**
- * 写入一条新记忆：先写 memories/{id}.json 正文，再把 index.json 整体更新（本地索引追加这一条后推送）。
- * 两步都成功才算成功；第二步失败时正文已经落在仓库里，下次同步会重新尝试补齐索引
- * （调用方应在失败时提示用户重试，而不是静默丢弃这条记忆）。
+ * 仅更新 index.json（不涉及任何记忆正文），用于批量修改索引元数据后整体推送
+ * ——比如批量重置 lastRecalledAt 这类"修数据"场景，不需要逐条调用 pushNewMemory。
  */
-export async function pushNewMemory(
+export async function pushIndexOnly(
+    config: FloatmarkRepoConfig,
+    entries: FloatmarkIndexEntry[],
+    commitMessage: string,
+): Promise<SyncResult> {
+    const nextIndex: FloatmarkIndex = {
+        characterId: config.characterId,
+        updatedAt: Date.now(),
+        memories: entries,
+    };
+    const result = await putFile(config, INDEX_PATH, JSON.stringify(nextIndex, null, 2), commitMessage);
+    if (!result.ok) return { ok: false, error: result.error };
+    await replaceMemoryIndex(config.characterId, entries);
+    return { ok: true, pulledCount: entries.length };
+}
     config: FloatmarkRepoConfig,
     entry: FloatmarkIndexEntry,
     memory: FloatmarkMemory,

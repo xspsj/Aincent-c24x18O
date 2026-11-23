@@ -64,3 +64,15 @@ export function applyRecall(entry: FloatmarkIndexEntry, now: number = Date.now()
         lastRecalledAt: now,
     };
 }
+
+/**
+ * 仅用于测试/修复数据：把 lastRecalledAt 刷新成当前时间，不增加 accessCount
+ * （不算一次真正的"唤醒"，只是重新校准时间基准）。
+ *
+ * 用途：早期一批测试迁移数据曾把 lastRecalledAt 误设成记忆的 createdAt（事发时间），
+ * 导致很久以前发生的记忆在刚迁移进来的瞬间就被当成"事发已久、无人问津"算出接近 0
+ * 的活跃度分数——这个函数用来一次性纠正这批数据，不是常规流程的一部分。
+ */
+export function resetRecalledAtToNow(entry: FloatmarkIndexEntry, now: number = Date.now()): FloatmarkIndexEntry {
+    return { ...entry, lastRecalledAt: now };
+}
