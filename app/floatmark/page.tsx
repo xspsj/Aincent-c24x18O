@@ -9,12 +9,15 @@
 import { useEffect, useState } from "react";
 import type { Character } from "@/lib/character-types";
 import { loadCharacters } from "@/lib/character-storage";
-import type { FloatmarkRepoConfig, FloatmarkIndexEntry, FloatmarkMemory } from "@/lib/floatmark-types";
+import type { FloatmarkRepoConfig, FloatmarkIndexEntry, FloatmarkMemory, FloatmarkFallbackConfig } from "@/lib/floatmark-types";
 import { saveFloatmarkRepoConfig, loadFloatmarkRepoConfig } from "@/lib/floatmark-config-storage";
+import { loadFloatmarkFallbackConfig, saveFloatmarkFallbackConfig } from "@/lib/floatmark-config-storage";
 import { pushNewMemory, pullIndexIfNewer, getMemoryBody } from "@/lib/floatmark-sync";
 import { loadMemoryIndex } from "@/lib/floatmark-storage";
 import { testConnection } from "@/lib/floatmark-github-client";
 import { previewMigration, migrateNativeMemoriesToFloatmark } from "@/lib/floatmark-migration";
+import { rankByActivation, type RankedMemory } from "@/lib/floatmark-activation";
+import { checkFallbackTrigger, incrementTurnCount, resetFallbackCounters } from "@/lib/floatmark-fallback";
 import { hydrateKvDb } from "@/lib/kv-db";
 
 export default function FloatmarkHearthPage() {
@@ -28,6 +31,7 @@ export default function FloatmarkHearthPage() {
     const [log, setLog] = useState<string[]>(["正在加载本机数据…"]);
     const [entries, setEntries] = useState<FloatmarkIndexEntry[]>([]);
     const [bodyPreview, setBodyPreview] = useState<string>("");
+    const [fallbackConfig, setFallbackConfig] = useState<FloatmarkFallbackConfig | null>(null);
 
     // 这个页面是独立路由，不经过 MainApp 入口，所以要自己等一次 kv 水合完成，
     // 否则 loadCharacters() 读到的内存缓存还是空的（角色数据实际在 IndexedDB 里，
@@ -58,6 +62,7 @@ export default function FloatmarkHearthPage() {
         }
         setToken("");
         loadMemoryIndex(selectedId).then(setEntries);
+        setFallbackConfig(loadFloatmarkFallbackConfig(selectedId));
         setLog(prev => [`[${new Date().toLocaleTimeString()}] 已切换角色`, ...prev]);
     }, [selectedId]);
 
@@ -192,6 +197,39 @@ export default function FloatmarkHearthPage() {
         }
     }
 
+    function rankedEntries(): RankedMemory[] {
+        return rankByActivation(entries);
+    }
+
+    function handleSimulateTurn() {
+        if (!fallbackConfig) return;
+        const next = incrementTurnCount(fallbackConfig);
+        saveFloatmarkFallbackConfig(next);
+        setFallbackConfig(next);
+        appendLog(`模拟推进一轮对话，当前计数 ${next.turnsSinceLastSettlement}/${next.turnThreshold}`);
+    }
+
+    function handleCheckFallback() {
+        if (!fallbackConfig) return;
+        const result = checkFallbackTrigger(fallbackConfig);
+        if (result.shouldTrigger) {
+            appendLog(`应触发兜底结算（原因：${result.reason === "turn" ? "轮次达到阈值" : "距上次结算时间已达阈值"}）`
+                + "——真正的生成逻辑留到接入预设坑位那一步，这里先只验证判断逻辑。");
+        } else {
+            appendLog(`暂不触发兜底（轮次 ${fallbackConfig.turnsSinceLastSettlement}/${fallbackConfig.turnThreshold}，`
+                + `距上次结算 ${Math.round((Date.now() - fallbackConfig.lastSettlementAt) / 60000)} 分钟 / `
+                + `阈值 ${Math.round(fallbackConfig.timeThresholdMs / 60000)} 分钟）`);
+        }
+    }
+
+    function handleResetFallback() {
+        if (!fallbackConfig) return;
+        const next = resetFallbackCounters(fallbackConfig);
+        saveFloatmarkFallbackConfig(next);
+        setFallbackConfig(next);
+        appendLog("兜底计数器已手动清零重新计时。");
+    }
+
     return (
         <div style={{
             minHeight: "100dvh",
@@ -242,13 +280,33 @@ export default function FloatmarkHearthPage() {
                 <button onClick={handleMigrate} style={{ ...btnStyle, background: "#5a4a2a" }}>迁移现有记忆</button>
             </div>
 
+            {fallbackConfig && (
+                <div style={{ marginTop: 16, padding: 10, border: "1px solid #2a2f3d", borderRadius: 8 }}>
+                    <h2 style={{ fontSize: 13, color: "#aab0c2", margin: 0 }}>兜底结算测试</h2>
+                    <div style={{ fontSize: 11, color: "#8a90a2", marginTop: 4 }}>
+                        轮次 {fallbackConfig.turnsSinceLastSettlement}/{fallbackConfig.turnThreshold}
+                        （{fallbackConfig.turnEnabled ? "已启用" : "已关闭"}） ·
+                        距上次结算 {Math.round((Date.now() - fallbackConfig.lastSettlementAt) / 60000)} 分钟 /
+                        阈值 {Math.round(fallbackConfig.timeThresholdMs / 60000)} 分钟
+                        （{fallbackConfig.timeEnabled ? "已启用" : "已关闭"}）
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                        <button onClick={handleSimulateTurn} style={{ ...btnStyle, minHeight: 36 }}>模拟推进一轮</button>
+                        <button onClick={handleCheckFallback} style={{ ...btnStyle, minHeight: 36 }}>检查是否该触发</button>
+                        <button onClick={handleResetFallback} style={{ ...btnStyle, minHeight: 36, background: "#4a3a3a" }}>手动清零计数</button>
+                    </div>
+                </div>
+            )}
+
             <div style={{ marginTop: 16 }}>
-                <h2 style={{ fontSize: 13, color: "#aab0c2" }}>本机缓存索引（{entries.length} 条）</h2>
-                {entries.map(entry => (
+                <h2 style={{ fontSize: 13, color: "#aab0c2" }}>本机缓存索引 · 按活跃度排序（{entries.length} 条）</h2>
+                {rankedEntries().map(({ entry, score }) => (
                     <div key={entry.id} style={{ padding: 8, border: "1px solid #2a2f3d", borderRadius: 8, marginTop: 6 }}>
                         <div>{entry.summary}</div>
                         <div style={{ fontSize: 11, color: "#8a90a2" }}>
-                            重要度 {entry.importance} · 情绪 {entry.emotionIntensity} · 触发 {entry.trigger}
+                            活跃度 <strong style={{ color: "#9fb4ff" }}>{score.toFixed(2)}</strong> ·
+                            重要度 {entry.importance} · 情绪 {entry.emotionIntensity} ·
+                            唤醒 {entry.accessCount} 次 · 触发 {entry.trigger}
                         </div>
                         <button onClick={() => handleViewBody(entry.id)} style={{ ...btnStyle, marginTop: 6, flex: "none", minHeight: 32 }}>
                             查看正文

@@ -13,6 +13,11 @@ export type FloatmarkTrigger =
     | "fallback"        // 兜底结算（轮次或时间阈值触发的后台整理）
     | "migrated";      // 开启浮痕时，从原生长期/核心记忆迁移过来的存量数据
 
+// 浮痕不再区分"核心记忆/长期记忆"两种运行时类别——是否常驻在活跃度顶端完全由
+// 活跃度分数自然决定（见 floatmark-activation.ts），不存在写入时钉死、之后不变的分类。
+// FloatmarkMemoryType 仅作为历史出身标记保留：迁移存量数据时记录它在原生系统里
+// 曾经是 core 还是 long_term，可用于给迁移时的初始 importance 一个参考，
+// 不参与任何运行时的衰减/排序逻辑。
 export type FloatmarkMemoryType = "core" | "long_term";
 
 /**
