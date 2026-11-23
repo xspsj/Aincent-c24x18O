@@ -77,6 +77,13 @@ export async function pushIndexOnly(
     await replaceMemoryIndex(config.characterId, entries);
     return { ok: true, pulledCount: entries.length };
 }
+
+/**
+ * 写入一条新记忆：先写 memories/{id}.json 正文，再把 index.json 整体更新（本地索引追加这一条后推送）。
+ * 两步都成功才算成功；第二步失败时正文已经落在仓库里，下次同步会重新尝试补齐索引
+ * （调用方应在失败时提示用户重试，而不是静默丢弃这条记忆）。
+ */
+export async function pushNewMemory(
     config: FloatmarkRepoConfig,
     entry: FloatmarkIndexEntry,
     memory: FloatmarkMemory,
