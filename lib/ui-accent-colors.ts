@@ -9,6 +9,7 @@ export const BINDING_ACCENTS = {
     identity: "#2FA52F",
     memory: "#5B4DDB",
     embedding: "#18A957",
+    floatmark: "#2A9D8F",
 } as const;
 
 export const CONTENT_APP_ACCENTS: Record<ContentAppId, string> = {

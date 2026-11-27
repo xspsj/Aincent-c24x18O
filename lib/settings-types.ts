@@ -329,6 +329,9 @@ export type BindingConfig = {
     qaApiConfigId?: string;
     /** Auxiliary API: used to translate reasoning/chain-of-thought text (global, not per-character) */
     reasoningTranslateApiConfigId?: string;
+    /** Auxiliary API: used by Floatmark (浮痕) external memory generation — self-recall judgment,
+     *  fallback settlement summaries, migration deep-review (global, not per-character) */
+    floatmarkApiConfigId?: string;
 };
 
 // --- Chat Toolbox ---
