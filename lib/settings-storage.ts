@@ -1063,7 +1063,7 @@ export function resolveBinding(
  * Falls back to global default apiConfigId if not explicitly set.
  */
 export function resolveAuxiliaryApiConfig(
-    field: "memorySummaryApiConfigId" | "embeddingApiConfigId" | "mascotApiConfigId" | "reasoningTranslateApiConfigId" | "qaApiConfigId"
+    field: "memorySummaryApiConfigId" | "embeddingApiConfigId" | "mascotApiConfigId" | "reasoningTranslateApiConfigId" | "qaApiConfigId" | "floatmarkApiConfigId"
 ): ApiConfig | null {
     const config = loadBindingConfig();
     const apiConfigs = loadApiConfigs();
