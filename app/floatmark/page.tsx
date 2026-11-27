@@ -18,6 +18,7 @@ import { testConnection } from "@/lib/floatmark-github-client";
 import { previewMigration, migrateNativeMemoriesToFloatmark } from "@/lib/floatmark-migration";
 import { rankByActivation, resetRecalledAtToNow, type RankedMemory } from "@/lib/floatmark-activation";
 import { checkFallbackTrigger, incrementTurnCount, resetFallbackCounters } from "@/lib/floatmark-fallback";
+import { generateFloatmarkMemory } from "@/lib/floatmark-generator";
 import { hydrateKvDb } from "@/lib/kv-db";
 
 export default function FloatmarkHearthPage() {
@@ -32,6 +33,8 @@ export default function FloatmarkHearthPage() {
     const [entries, setEntries] = useState<FloatmarkIndexEntry[]>([]);
     const [bodyPreview, setBodyPreview] = useState<string>("");
     const [fallbackConfig, setFallbackConfig] = useState<FloatmarkFallbackConfig | null>(null);
+    const [simulateInput, setSimulateInput] = useState("");
+    const [simulateResult, setSimulateResult] = useState<string>("");
 
     // 这个页面是独立路由，不经过 MainApp 入口，所以要自己等一次 kv 水合完成，
     // 否则 loadCharacters() 读到的内存缓存还是空的（角色数据实际在 IndexedDB 里，
@@ -245,6 +248,32 @@ export default function FloatmarkHearthPage() {
         }
     }
 
+    async function handleSimulateGenerate() {
+        const character = characters.find(c => c.id === selectedId);
+        if (!character) return appendLog("请先选择角色");
+        if (!simulateInput.trim()) return appendLog("请先输入要模拟的对话/事件内容");
+
+        appendLog("调用浮痕 API 判断中…");
+        setSimulateResult("");
+        const result = await generateFloatmarkMemory({
+            character,
+            newContent: simulateInput.trim(),
+            allEntries: entries,
+        });
+
+        if (!result.ok) {
+            appendLog("生成失败: " + result.error);
+            return;
+        }
+        if (!result.memory.shouldRecord) {
+            appendLog("判断结果：不值得记录（这是正常情况，大部分日常对话都不该触发）。");
+            setSimulateResult("shouldRecord: false");
+            return;
+        }
+        appendLog(`判断结果：值得记录 · 重要度 ${result.memory.importance} · 情绪强度 ${result.memory.emotionIntensity}`);
+        setSimulateResult(JSON.stringify(result.memory, null, 2));
+    }
+
     return (
         <div style={{
             minHeight: "100dvh",
@@ -315,6 +344,28 @@ export default function FloatmarkHearthPage() {
                     </div>
                 </div>
             )}
+
+            <div style={{ marginTop: 16, padding: 10, border: "1px solid #2a2f3d", borderRadius: 8 }}>
+                <h2 style={{ fontSize: 13, color: "#aab0c2", margin: 0 }}>核心生成函数测试（第六步 6-1）</h2>
+                <div style={{ fontSize: 11, color: "#8a90a2", marginTop: 4 }}>
+                    粘贴一段假设的对话/事件内容，验证"判断要不要记 + 产出结构化记忆"这套逻辑，
+                    不接入真实聊天，需要先在上面配置好浮痕 API（或配好全局默认 API）。
+                </div>
+                <textarea
+                    value={simulateInput}
+                    onChange={e => setSimulateInput(e.target.value)}
+                    placeholder="例如：用户说今天是我们认识一周年，TA很惊讶地笑了，说原来你还记得。"
+                    style={{ ...inputStyle, minHeight: 80, marginTop: 8 }}
+                />
+                <div style={{ marginTop: 8 }}>
+                    <button onClick={handleSimulateGenerate} style={{ ...btnStyle, background: "#3a5a4a" }}>
+                        模拟判断并生成
+                    </button>
+                </div>
+                {simulateResult && (
+                    <pre style={{ ...logStyle, marginTop: 8, maxHeight: "25vh" }}>{simulateResult}</pre>
+                )}
+            </div>
 
             <div style={{ marginTop: 16 }}>
                 <h2 style={{ fontSize: 13, color: "#aab0c2" }}>本机缓存索引 · 按活跃度排序（{entries.length} 条）</h2>
