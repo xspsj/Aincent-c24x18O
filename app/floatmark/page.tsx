@@ -19,6 +19,7 @@ import { previewMigration, migrateNativeMemoriesToFloatmark } from "@/lib/floatm
 import { rankByActivation, resetRecalledAtToNow, type RankedMemory } from "@/lib/floatmark-activation";
 import { checkFallbackTrigger, incrementTurnCount, resetFallbackCounters } from "@/lib/floatmark-fallback";
 import { generateFloatmarkMemory } from "@/lib/floatmark-generator";
+import { runFallbackSettlement } from "@/lib/floatmark-fallback-settlement";
 import { hydrateKvDb } from "@/lib/kv-db";
 
 export default function FloatmarkHearthPage() {
@@ -233,6 +234,28 @@ export default function FloatmarkHearthPage() {
         appendLog("兜底计数器已手动清零重新计时。");
     }
 
+    async function handleRunSettlement() {
+        const character = characters.find(c => c.id === selectedId);
+        const config = loadFloatmarkRepoConfig(selectedId);
+        if (!character) return appendLog("请先选择角色");
+        if (!config || !config.token) return appendLog("请先保存配置");
+        if (!fallbackConfig) return appendLog("兜底配置尚未加载");
+
+        appendLog("执行兜底结算中（取事件流 → 判断 → 可能推送）…");
+        const result = await runFallbackSettlement(character, config, fallbackConfig);
+        if (!result.ok) {
+            appendLog("结算失败（计数器未清零，下次会重试）: " + result.error);
+            return;
+        }
+        if (result.recorded) {
+            appendLog("结算完成：产生了一条新记忆，已推送到仓库。");
+            loadMemoryIndex(selectedId).then(setEntries);
+        } else {
+            appendLog("结算完成：未产生新记忆（" + result.reason + "）。计数器已清零。");
+        }
+        setFallbackConfig(loadFloatmarkFallbackConfig(selectedId));
+    }
+
     async function handleResetRecalledAt() {
         const config = loadFloatmarkRepoConfig(selectedId);
         if (!config || !config.token) return appendLog("请先保存配置");
@@ -341,6 +364,7 @@ export default function FloatmarkHearthPage() {
                         <button onClick={handleSimulateTurn} style={{ ...btnStyle, minHeight: 36 }}>模拟推进一轮</button>
                         <button onClick={handleCheckFallback} style={{ ...btnStyle, minHeight: 36 }}>检查是否该触发</button>
                         <button onClick={handleResetFallback} style={{ ...btnStyle, minHeight: 36, background: "#4a3a3a" }}>手动清零计数</button>
+                        <button onClick={handleRunSettlement} style={{ ...btnStyle, minHeight: 36, background: "#3a5a4a" }}>立即执行兜底结算</button>
                     </div>
                 </div>
             )}
